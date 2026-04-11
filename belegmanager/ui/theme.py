@@ -121,10 +121,26 @@ def apply_theme() -> None:
           box-sizing: border-box;
         }
 
+        .bm-global-brand-badge {
+          width: 32px;
+          height: 32px;
+          flex: 0 0 auto;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          background: var(--bm-surface-strong);
+          border: 2px solid var(--bm-border);
+          border-radius: 8px;
+          box-shadow: var(--bm-shadow-soft);
+          overflow: hidden;
+        }
+
         .bm-global-brand-logo {
-          width: 40px;
-          height: 40px;
+          width: 24px;
+          height: 24px;
           object-fit: contain;
+          image-rendering: pixelated;
+          image-rendering: crisp-edges;
         }
 
         .bm-global-brand {

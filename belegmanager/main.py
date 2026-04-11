@@ -21,7 +21,7 @@ def run() -> None:
 
     ui.run(
         title="Atelier Buddy",
-        favicon=settings.assets_dir / "hamster-favicon.svg",
+        favicon=settings.assets_dir / "hamster-favicon.png",
         host=settings.app_host,
         port=settings.app_port,
         reload=False,

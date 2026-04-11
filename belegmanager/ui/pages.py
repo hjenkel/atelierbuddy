@@ -471,7 +471,8 @@ def _shell(active_path: str, title: str):
         with ui.row().classes("bm-global-header w-full items-center"):
             with ui.row().classes("bm-global-header-inner w-full items-center justify-between"):
                 with ui.row().classes("items-center gap-2"):
-                    ui.image("/assets/hamster-logo.svg").classes("bm-global-brand-logo")
+                    with ui.element("div").classes("bm-global-brand-badge"):
+                        ui.image("/assets/hamster-logo.png").classes("bm-global-brand-logo")
                     ui.label("Atelier Buddy").classes("bm-global-brand")
                 with ui.row().classes("items-center gap-1"):
                     with ui.button(icon="help_outline").props("flat round dense").classes("bm-global-icon-btn"):
