@@ -8,8 +8,8 @@ Geld wird als Integer-Cents gespeichert (`amount_*_cents`).
 
 Parser-Verhalten (`_parse_money_to_cents`):
 - akzeptiert typische Formate wie `100`, `100,00`, `100.00`, `1.234,56`, `1,234.56`.
-- entfernt Waehrung/Leerzeichen.
-- beruecksichtigt Vorzeichen (je nach Kontext erlaubt/gesperrt).
+- entfernt Währung/Leerzeichen.
+- berücksichtigt Vorzeichen (je nach Kontext erlaubt/gesperrt).
 - rundet auf Cent mittels `ROUND_HALF_UP`.
 
 Warum:
@@ -39,8 +39,8 @@ Validierung:
 - erneut in `CostAllocationService._validate_allocations_payload(...)`
 
 Warum:
-- Vorzeichenkonsistenz ist zentral fuer Auswertung und Datenintegritaet.
-- doppelte Absicherung verhindert fehlerhafte Zustaende.
+- Vorzeichenkonsistenz ist zentral für Auswertung und Datenintegrität.
+- doppelte Absicherung verhindert fehlerhafte Zustände.
 
 ## Kostenzuordnungen (Allokationen)
 Pflichtregeln:
@@ -56,9 +56,9 @@ Spezialfall ohne Projekt:
 
 Warum:
 - fachliche Wahrheit liegt in Zuordnungszeilen, nicht in parallelen Feldern.
-- Summentreue ermoeglicht belastbare Reports.
+- Summentreue ermöglicht belastbare Reports.
 
-## Vollstaendigkeit in der UI
+## Vollständigkeit in der UI
 Fehlende Pflichtangaben werden auf Basis von:
 - Kopf-Feldern (`doc_date`, Anbieter, Brutto/USt/Netto, Typ),
 - plus `CostAllocationService.validate_for_receipt(...)`

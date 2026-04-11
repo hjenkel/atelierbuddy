@@ -1,33 +1,33 @@
 # Atelier Buddy
 
-Lokale Python-Web-App fuer einfache Belegverwaltung in kreativen Arbeitskontexten.
+Lokale Python-Web-App für einfache Belegverwaltung in kreativen Arbeitskontexten.
 
 Aktuelle Version: `0.1.0` (pre-alpha)
 
-## Wofuer ist das?
-Atelier Buddy ist fuer **Kuenstler:innen, Bands und andere Kreative** gedacht, die ihre Ausgaben strukturiert erfassen wollen, ohne klassische Enterprise-Buchhaltungssoftware.
+## Wofür ist das?
+Atelier Buddy ist für **Künstler:innen, Bands und andere Kreative** gedacht, die ihre Ausgaben strukturiert erfassen wollen, ohne klassische Enterprise-Buchhaltungssoftware.
 
 Fokus aktuell:
 - einfache Belegverwaltung
 - saubere Zuordnung von Ausgaben
-- Vorbereitung fuer EUER-Auswertungen
+- Vorbereitung für EUER-Auswertungen
 
 Nicht im Fokus aktuell:
 - USt-Voranmeldungen
 - ELSTER-Integration
-- rechtsverbindliche Steuererklaerungs-Funktionen
+- rechtsverbindliche Steuererklärungs-Funktionen
 
 ## Wichtige Hinweise (Haftung, Nutzung, Verantwortung)
-- Die Software wird **ohne Gewaehrleistung** bereitgestellt ("as is").
-- Es wird **keine Haftung** fuer Datenverlust, Fehlberechnungen oder steuerliche Folgen uebernommen.
-- Die App hat **keine steuerliche oder rechtliche Pruefung** durch Steuerberatung/Kanzlei erhalten.
+- Die Software wird **ohne Gewährleistung** bereitgestellt ("as is").
+- Es wird **keine Haftung** für Datenverlust, Fehlberechnungen oder steuerliche Folgen übernommen.
+- Die App hat **keine steuerliche oder rechtliche Prüfung** durch Steuerberatung/Kanzlei erhalten.
 - Nutzung erfolgt in eigener Verantwortung.
-- **Regelmaessige Backups sind dringend empfohlen.**
+- **Regelmäßige Backups sind dringend empfohlen.**
 
 ## Vibecoding-Transparenz
 Dieses Projekt wurde komplett **vibecoded** erstellt.
 
-Das heisst: Es kann fachliche, technische und sicherheitsrelevante Luecken geben.
+Das heißt: Es kann fachliche, technische und sicherheitsrelevante Lücken geben.
 Wenn du Erfahrung mit Python, Buchhaltungslogik, Security oder UX hast:
 **Code-Reviews, Validierung und Verbesserungen sind sehr willkommen.**
 
@@ -36,21 +36,21 @@ Wenn du Erfahrung mit Python, Buchhaltungslogik, Security oder UX hast:
 - OCR mit `ocrmypdf` (deu+eng)
 - Volltextsuche via SQLite FTS5
 - Kostenzuordnung pro Beleg mit Kostenkategorie + Unterkategorie + optionalem Projekt
-- Wenn kein Projekt gewaehlt wird, erfolgt intern automatisch die Zuordnung zur Kostenstelle `Allgemeine Ausgabe`
+- Wenn kein Projekt gewählt wird, erfolgt intern automatisch die Zuordnung zur Kostenstelle `Allgemeine Ausgabe`
 - Standardmodus mit 100%-Zuordnung und optionaler Split-Aufteilung
 - Anbieter-Stammdaten und Anbieterzuordnung
 - Rechnungsbetrag mit Brutto/USt/Netto
 - Cover-Foto pro Projekt (optimiertes WebP)
-- Beleg-Vollstaendigkeitsstatus (Pflichtfelder)
+- Beleg-Vollständigkeitsstatus (Pflichtfelder)
 - Thumbnail-Archiv und Belegdetail als Vollseite (Originaldatei links, Indexierung rechts)
 
 ## Schnellstart mit Docker (empfohlen)
 ### Voraussetzungen
 - Docker Desktop (oder Docker Engine + Compose Plugin)
 
-### Schritt-fuer-Schritt
+### Schritt-für-Schritt
 ```bash
-# 1) In deinen gewuenschten Zielordner wechseln (z. B. Projekt-, Docker- oder Home-Verzeichnis)
+# 1) In deinen gewünschten Zielordner wechseln (z. B. Projekt-, Docker- oder Home-Verzeichnis)
 cd /pfad/zu/deinem/zielordner
 
 # 2) Repository klonen
@@ -73,7 +73,7 @@ App-URL: `http://localhost:12321`
   - OCR-Sprachen `deu+eng`
 
 Wichtig:
-- Die GitHub-URL (`https://github.com/hjenkel/atelierbuddy`) gehoert zum `git clone`-Schritt.
+- Die GitHub-URL (`https://github.com/hjenkel/atelierbuddy`) gehört zum `git clone`-Schritt.
 - Sie wird **nicht** in `docker-compose.yml` eingetragen.
 
 ### Betrieb im Alltag
@@ -101,7 +101,7 @@ docker compose up --build -d
 - OCR-Binaries und Sprachpakete sind im Docker-Image enthalten.
 
 ### Empfohlener Betrieb
-Empfohlen ist ein kleiner lokaler Host im Heim-/Studio-Netz, z. B. ein Raspberry Pi oder Mini-PC, auf dem Docker dauerhaft laeuft.
+Empfohlen ist ein kleiner lokaler Host im Heim-/Studio-Netz, z. B. ein Raspberry Pi oder Mini-PC, auf dem Docker dauerhaft läuft.
 
 ## Lokale Installation (ohne Docker)
 ### Voraussetzungen
@@ -129,7 +129,7 @@ cd /pfad/zu/atelierbuddy
 python3.12 -m venv .venv
 source .venv/bin/activate
 
-# 3) Abhaengigkeiten
+# 3) Abhängigkeiten
 python -m pip install -U pip
 python -m pip install -e .
 
@@ -150,25 +150,25 @@ tar -czf atelierbuddy-backup-$(date +%Y-%m-%d).tar.gz data
 ```
 
 ## Hinweise
-- Bei internem Schema-Marker-Wechsel (`db.py` -> `SCHEMA_VERSION`) wird ein automatischer Full-Reset ausgefuehrt (DB + Archiv), da kein Alt-Daten-Mapping verwendet wird.
+- Bei internem Schema-Marker-Wechsel (`db.py` -> `SCHEMA_VERSION`) wird ein automatischer Full-Reset ausgeführt (DB + Archiv), da kein Alt-Daten-Mapping verwendet wird.
 - Falls `ocrmypdf` fehlt, werden OCR-Jobs mit Fehlermeldung markiert.
-- Falls `deu` in Tesseract fehlt, laeuft OCR mit verfuegbaren Sprachen weiter (z. B. `eng`) und zeigt einen Setup-Hinweis.
-- Bei textbasierten PDFs wird bei `OCR skipped ...` der PDF-Textlayer fuer Suche/FTS uebernommen.
+- Falls `deu` in Tesseract fehlt, läuft OCR mit verfügbaren Sprachen weiter (z. B. `eng`) und zeigt einen Setup-Hinweis.
+- Bei textbasierten PDFs wird bei `OCR skipped ...` der PDF-Textlayer für Suche/FTS übernommen.
 
 ## Versionierung
 - Single Source of Truth: `pyproject.toml` -> `[project].version`
 - Laufzeitanzeige in der App (Seite `Einstellungen`) nutzt diese Version.
-- Changelog wird in `CHANGELOG.md` gefuehrt.
-- Empfehlung fuer pre-alpha: `0.1.x` fuer Bugfixes, `0.2.0` fuer neue Features.
+- Changelog wird in `CHANGELOG.md` geführt.
+- Empfehlung für pre-alpha: `0.1.x` für Bugfixes, `0.2.0` für neue Features.
 
-## Weiterfuehrende Entwicklerdoku
+## Weiterführende Entwicklerdoku
 - Einstieg: [docs/README.md](docs/README.md)
 - Die Dokumentation orientiert sich an der Version aus `pyproject.toml` (aktuell `0.1.0`).
 
 ## Lizenz & Rechtliches
 - Projektlizenz: `AGPL-3.0-or-later` (siehe `LICENSE`)
 - Copyright: `Copyright (c) 2026 Hanno Jenkel`
-- In der App unter `Einstellungen` gibt es den Link `Fremdlizenzen` fuer die Uebersicht aller Python-Abhaengigkeiten (inkl. transitiv) mit Lizenzinformationen.
+- In der App unter `Einstellungen` gibt es den Link `Fremdlizenzen` für die Übersicht aller Python-Abhängigkeiten (inkl. transitiv) mit Lizenzinformationen.
 - Optionaler Neuaufbau des Lizenz-Caches:
   ```bash
   source .venv/bin/activate

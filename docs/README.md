@@ -1,6 +1,6 @@
 # Dokumentation
 
-Diese Dokumentation ist der Einstiegspunkt fuer die technische Projektbeschreibung von **Atelier Buddy**.
+Diese Dokumentation ist der Einstiegspunkt für die technische Projektbeschreibung von **Atelier Buddy**.
 
 Version-Quelle (Single Source of Truth): `pyproject.toml` -> `[project].version` (aktuell `0.1.0`).
 

@@ -3,7 +3,7 @@
 Quelle: `belegmanager/models.py`, `belegmanager/db.py`, `belegmanager/fts.py`  
 Version-Single-Source: `pyproject.toml` (`0.1.0`)
 
-## Ueberblick
+## Überblick
 Die App nutzt SQLite mit SQLModel/SQLAlchemy.  
 Hauptfokus liegt auf:
 - `receipt` als Beleg-Stammsatz,
@@ -11,10 +11,10 @@ Hauptfokus liegt auf:
 - Stammdaten (`project`, `supplier`, `cost_type`, `cost_subcategory`).
 
 Zusatz:
-- `receipt_fts` (FTS5) fuer Volltextsuche auf OCR-/PDF-Text.
-- `import_batch` fuer Import-Statistik.
+- `receipt_fts` (FTS5) für Volltextsuche auf OCR-/PDF-Text.
+- `import_batch` für Import-Statistik.
 
-## ER-Uebersicht (vereinfacht)
+## ER-Übersicht (vereinfacht)
 ```mermaid
 erDiagram
     RECEIPT ||--o{ COST_ALLOCATION : has
@@ -67,15 +67,15 @@ erDiagram
 - `cost_type`: Kostenkategorie (aktiv/archiviert).
 - `cost_subcategory`: Unterkategorie je Kostenkategorie, inkl. systemseitigem Default.
 - `project`: optionale Projektzuordnung.
-- `cost_area`: technische Zielstruktur; UI-seitig aktuell ausgeblendet, u. a. fuer Default-Fallback.
+- `cost_area`: technische Zielstruktur; UI-seitig aktuell ausgeblendet, u. a. für Default-Fallback.
 - `supplier`: Anbieter/Lieferant.
-- `import_batch`: Importlauf (Zaehlwerte und Zeiten).
+- `import_batch`: Importlauf (Zählwerte und Zeiten).
 
 ## Wichtige technische Konventionen
 - Geldwerte in `*_cents` als Integer gespeichert.
 - Timestamps in UTC.
-- Soft-Delete ueber `receipt.deleted_at`.
-- Volltextsuche ueber FTS5-Tabelle `receipt_fts(receipt_id, content)`.
+- Soft-Delete über `receipt.deleted_at`.
+- Volltextsuche über FTS5-Tabelle `receipt_fts(receipt_id, content)`.
 
 ## Migration, Seeds und Schema-Reset
 Initialisierung in `db.init_db()`:
@@ -84,12 +84,12 @@ Initialisierung in `db.init_db()`:
    - bei Abweichung: **Hard Reset** (DB-Datei + Archivordner neu).
 2. `SQLModel.metadata.create_all(engine)`
 3. `_apply_additive_migrations(session)`:
-   - fuegt fehlende Spalten idempotent hinzu (z. B. `receipt.document_type`, `cost_type.active`, ...).
-4. `init_fts(session)` fuer `receipt_fts`
+   - fügt fehlende Spalten idempotent hinzu (z. B. `receipt.document_type`, `cost_type.active`, ...).
+4. `init_fts(session)` für `receipt_fts`
 5. `_seed_defaults(session)`:
    - Default-Kostenkategorien und Default-Unterkategorien
    - technische Default-Kostenstelle `Allgemeine Ausgabe`
-   - Indexe fuer wichtige Filter/Join-Felder
+   - Indexe für wichtige Filter/Join-Felder
 
 ## Warum diese Struktur
 - Belegkopf + Zuordnungszeilen trennt Stammdaten und fachliche Verteilung sauber.

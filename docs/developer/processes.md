@@ -14,10 +14,10 @@ Version-Single-Source: `pyproject.toml` (`0.1.0`)
 - `ReceiptService`
 
 ## Docker-Laufzeit (empfohlen)
-Standardbetrieb ueber `docker-compose.yml`:
+Standardbetrieb über `docker-compose.yml`:
 - Container lauscht intern auf `8080`.
-- Host-Port ist standardmaessig `12321`.
-- Persistenz ueber Named Volume `atelier_buddy_data` auf `/app/data`.
+- Host-Port ist standardmäßig `12321`.
+- Persistenz über Named Volume `atelier_buddy_data` auf `/app/data`.
 
 Relevante ENV-Overrides:
 - `BM_HOST` (Default lokal: `127.0.0.1`, in Docker: `0.0.0.0`)
@@ -26,7 +26,7 @@ Relevante ENV-Overrides:
 
 ## Flow 1: Import -> OCR
 1. UI startet Import (Dateien/Ordner).
-2. `ImportService` erzeugt `ImportBatch` + `Receipt`-Eintraege (`status=queued`).
+2. `ImportService` erzeugt `ImportBatch` + `Receipt`-Einträge (`status=queued`).
 3. Neue `receipt_id` werden in `OCRJobQueue.enqueue()` gestellt.
 4. Worker ruft `OCRService.process_receipt(receipt_id)` auf.
 5. OCR-Resultat:
@@ -35,7 +35,7 @@ Relevante ENV-Overrides:
    - optionales Datums-Vorschlagen aus Dokumenttext.
 
 ## Flow 2: Beleg bearbeiten/speichern
-1. Belegdetailseite laedt Stammdaten + bestehende Zuordnungen.
+1. Belegdetailseite lädt Stammdaten + bestehende Zuordnungen.
 2. Beim Speichern:
    - `ReceiptService.update_metadata(...)` speichert Kopf- und Betragsdaten.
    - `CostAllocationService.save_allocations(...)` ersetzt die Zuordnungszeilen transaktional.
@@ -52,16 +52,16 @@ Relevante ENV-Overrides:
 
 Ergebnis wird mit `selectinload(...)` geladen, damit UI-Ansichten ohne N+1-Probleme rendern.
 
-## Flow 4: Loeschen
+## Flow 4: Löschen
 - **Soft delete**: `ReceiptService.move_to_trash` setzt `deleted_at`.
 - **Restore**: `restore_from_trash` setzt `deleted_at = NULL`.
 - **Hard delete**:
-  - loescht `cost_allocation` + FTS-Zeile + `receipt`,
+  - löscht `cost_allocation` + FTS-Zeile + `receipt`,
   - entfernt archivierte Dateien (Original/OCR/Thumbnail/Normalisierung).
 
 ## Flow 5: Auswertung
 `ReportService` nutzt nur **auswertbare** Belege:
-- nicht geloescht,
+- nicht gelöscht,
 - `doc_date` gesetzt,
 - `amount_gross_cents` gesetzt,
 - mindestens eine Zuordnung,
@@ -75,4 +75,4 @@ Ausgabe:
 ## Warum diese Prozessaufteilung
 - Services halten Fachlogik aus der UI heraus.
 - Hintergrund-OCR entkoppelt lange Laufzeiten von der Bedienung.
-- Klare Zustandsuebergaenge (`queued/running/done/error`) machen Fehler und Fortschritt nachvollziehbar.
+- Klare Zustandsübergänge (`queued/running/done/error`) machen Fehler und Fortschritt nachvollziehbar.

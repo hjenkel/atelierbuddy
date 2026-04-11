@@ -1395,7 +1395,117 @@ def register_pages(services: ServiceContainer) -> None:
                                 "text-xs text-slate-500"
                             )
                         elif preview_url:
-                            ui.image(preview_url).classes("bm-image-viewer")
+                            image_viewer_id = f"bm_img_{uuid.uuid4().hex}"
+                            image_viewport_id = f"{image_viewer_id}_viewport"
+                            image_stage_id = f"{image_viewer_id}_stage"
+                            image_status_id = f"{image_viewer_id}_status"
+                            image_zoom_label_id = f"{image_viewer_id}_zoom"
+                            image_zoom_out_id = f"{image_viewer_id}_zoom_out"
+                            image_zoom_in_id = f"{image_viewer_id}_zoom_in"
+                            image_actual_id = f"{image_viewer_id}_actual"
+                            image_fit_id = f"{image_viewer_id}_fit"
+
+                            ui.html(
+                                f"""
+                                <div class="bm-image-viewer">
+                                  <div class="bm-image-toolbar">
+                                    <button id="{image_zoom_out_id}" type="button">−</button>
+                                    <span id="{image_zoom_label_id}" class="bm-image-label">100%</span>
+                                    <button id="{image_zoom_in_id}" type="button">+</button>
+                                    <button id="{image_actual_id}" type="button">100%</button>
+                                    <button id="{image_fit_id}" type="button">Fit</button>
+                                    <span class="bm-image-spacer"></span>
+                                  </div>
+                                  <div id="{image_viewport_id}" class="bm-image-viewport">
+                                    <img id="{image_stage_id}" class="bm-image-stage" src="{preview_url}" alt="Belegvorschau" />
+                                  </div>
+                                  <div id="{image_status_id}" class="bm-image-status">Bild wird geladen ...</div>
+                                </div>
+                                """
+                            ).classes("w-full bm-detail-preview-frame")
+                            ui.run_javascript(
+                                f"""
+                                (() => {{
+                                  const viewportEl = document.getElementById({json.dumps(image_viewport_id)});
+                                  const imageEl = document.getElementById({json.dumps(image_stage_id)});
+                                  const statusEl = document.getElementById({json.dumps(image_status_id)});
+                                  const zoomLabel = document.getElementById({json.dumps(image_zoom_label_id)});
+                                  const zoomOutBtn = document.getElementById({json.dumps(image_zoom_out_id)});
+                                  const zoomInBtn = document.getElementById({json.dumps(image_zoom_in_id)});
+                                  const actualBtn = document.getElementById({json.dumps(image_actual_id)});
+                                  const fitBtn = document.getElementById({json.dumps(image_fit_id)});
+
+                                  if (!viewportEl || !imageEl || !statusEl || !zoomLabel) return;
+
+                                  let naturalWidth = 0;
+                                  let naturalHeight = 0;
+                                  let scale = 1;
+
+                                  const clamp = (value) => Math.max(0.2, Math.min(6, value));
+
+                                  const applyScale = () => {{
+                                    if (!naturalWidth || !naturalHeight) return;
+                                    const width = Math.max(1, Math.round(naturalWidth * scale));
+                                    imageEl.style.width = `${{width}}px`;
+                                    imageEl.style.height = 'auto';
+                                    zoomLabel.textContent = `${{Math.round(scale * 100)}}%`;
+                                  }};
+
+                                  const fitWidth = () => {{
+                                    if (!naturalWidth) return;
+                                    const available = Math.max(viewportEl.clientWidth - 24, 140);
+                                    scale = clamp(available / naturalWidth);
+                                    applyScale();
+                                  }};
+
+                                  zoomOutBtn?.addEventListener('click', () => {{
+                                    scale = clamp(scale - 0.1);
+                                    applyScale();
+                                  }});
+
+                                  zoomInBtn?.addEventListener('click', () => {{
+                                    scale = clamp(scale + 0.1);
+                                    applyScale();
+                                  }});
+
+                                  actualBtn?.addEventListener('click', () => {{
+                                    scale = 1;
+                                    applyScale();
+                                  }});
+
+                                  fitBtn?.addEventListener('click', () => fitWidth());
+
+                                  const initialize = () => {{
+                                    naturalWidth = imageEl.naturalWidth || 0;
+                                    naturalHeight = imageEl.naturalHeight || 0;
+                                    if (!naturalWidth || !naturalHeight) {{
+                                      statusEl.textContent = 'Bildvorschau konnte nicht geladen werden.';
+                                      return;
+                                    }}
+                                    fitWidth();
+                                    statusEl.textContent = '';
+                                  }};
+
+                                  if (imageEl.complete) {{
+                                    initialize();
+                                  }} else {{
+                                    imageEl.addEventListener('load', initialize, {{ once: true }});
+                                    imageEl.addEventListener(
+                                      'error',
+                                      () => {{
+                                        statusEl.textContent = 'Bildvorschau konnte nicht geladen werden.';
+                                      }},
+                                      {{ once: true }},
+                                    );
+                                  }}
+
+                                  window.addEventListener('resize', () => {{
+                                    if (!naturalWidth) return;
+                                    if (scale < 1.05) fitWidth();
+                                  }});
+                                }})();
+                                """
+                            )
                         else:
                             with ui.element("div").classes(
                                 "w-full h-[360px] rounded-xl bg-slate-100 flex items-center justify-center"
@@ -1416,12 +1526,19 @@ def register_pages(services: ServiceContainer) -> None:
                             "Belegdatum",
                             value=receipt.doc_date.isoformat() if receipt.doc_date else "",
                         ).props("type=date clearable").classes("w-full")
-                        supplier_input = ui.select(
-                            {s.id: s.name for s in suppliers if s.id is not None},
-                            value=receipt.supplier_id,
-                            label="Anbieter",
-                            clearable=True,
-                        ).props("use-input input-debounce=0").classes("w-full")
+                        supplier_map = {s.id: s.name for s in suppliers if s.id is not None}
+                        with ui.row().classes("bm-allocation-line"):
+                            supplier_input = ui.select(
+                                supplier_map,
+                                value=receipt.supplier_id,
+                                label="Anbieter",
+                                clearable=True,
+                            ).props("use-input input-debounce=0").classes("bm-allocation-main-field")
+                            supplier_add_btn = ui.button(
+                                icon="add",
+                                on_click=lambda: open_quick_supplier_dialog(),
+                            ).props("flat round dense").classes("bm-inline-create-btn")
+                            supplier_add_btn.tooltip("Neuen Anbieter anlegen")
                         document_type_value = (
                             receipt.document_type
                             if receipt.document_type in {DOC_TYPE_INVOICE, DOC_TYPE_CREDIT_NOTE}
@@ -1507,6 +1624,113 @@ def register_pages(services: ServiceContainer) -> None:
                                     except ValueError:
                                         return None
                             return None
+
+                        def reload_supplier_options(selected_id: int | None = None) -> None:
+                            nonlocal suppliers, supplier_map
+                            with Session(engine) as session:
+                                suppliers = list(session.exec(select(Supplier).order_by(Supplier.name)).all())
+                            supplier_map = {item.id: item.name for item in suppliers if item.id is not None}
+                            current = to_optional_int(supplier_input.value)
+                            next_value = None
+                            if isinstance(selected_id, int) and selected_id in supplier_map:
+                                next_value = selected_id
+                            elif isinstance(current, int) and current in supplier_map:
+                                next_value = current
+                            supplier_input.set_options(supplier_map, value=next_value)
+
+                        def reload_project_options(selected_id: int | None = None) -> None:
+                            nonlocal projects, project_map
+                            with Session(engine) as session:
+                                projects = list(session.exec(select(Project).order_by(Project.name)).all())
+                            project_map = {item.id: item.name for item in projects if item.id is not None}
+
+                        def open_quick_supplier_dialog() -> None:
+                            with ui.dialog() as dialog, ui.card().classes("p-4 w-[480px] max-w-full"):
+                                ui.label("Neuer Anbieter").classes("text-lg font-semibold")
+                                name_input = ui.input("Anbietername").classes("w-full")
+                                active_input = ui.checkbox("Aktiv", value=True)
+
+                                def save_supplier() -> None:
+                                    name = (name_input.value or "").strip()
+                                    if not name:
+                                        ui.notify("Anbietername fehlt", type="negative")
+                                        return
+                                    try:
+                                        with Session(engine) as session:
+                                            existing = session.exec(
+                                                select(Supplier).where(func.lower(Supplier.name) == name.casefold())
+                                            ).first()
+                                            if existing:
+                                                existing.active = bool(active_input.value)
+                                                existing.updated_at = datetime.now(timezone.utc)
+                                                session.add(existing)
+                                                session.commit()
+                                                supplier_id = existing.id
+                                                ui.notify("Anbieter existierte bereits und wurde aktualisiert", type="positive")
+                                            else:
+                                                supplier = Supplier(name=name, active=bool(active_input.value))
+                                                session.add(supplier)
+                                                session.commit()
+                                                supplier_id = supplier.id
+                                                ui.notify("Anbieter angelegt", type="positive")
+                                        reload_supplier_options(selected_id=supplier_id if isinstance(supplier_id, int) else None)
+                                        dialog.close()
+                                    except Exception as exc:
+                                        ui.notify(f"Anbieter konnte nicht angelegt werden: {exc}", type="negative")
+
+                                with ui.row().classes("w-full justify-end gap-2"):
+                                    ui.button("Abbrechen", on_click=dialog.close).props("flat")
+                                    ui.button("Anlegen", on_click=save_supplier).props("color=primary")
+                            dialog.open()
+
+                        def open_quick_project_dialog(row_target: dict[str, Any] | None = None) -> None:
+                            with ui.dialog() as dialog, ui.card().classes("p-4 w-[520px] max-w-full"):
+                                ui.label("Neues Projekt").classes("text-lg font-semibold")
+                                name_input = ui.input("Projektname").classes("w-full")
+                                created_on_input = ui.input("Erschaffen am (optional)").props("type=date clearable").classes("w-full")
+                                active_input = ui.checkbox("Aktiv", value=True)
+
+                                def save_project() -> None:
+                                    name = (name_input.value or "").strip()
+                                    if not name:
+                                        ui.notify("Projektname fehlt", type="negative")
+                                        return
+                                    try:
+                                        with Session(engine) as session:
+                                            existing = session.exec(
+                                                select(Project).where(func.lower(Project.name) == name.casefold())
+                                            ).first()
+                                            if existing:
+                                                existing.active = bool(active_input.value)
+                                                existing.created_on = _parse_iso_date(created_on_input.value)
+                                                session.add(existing)
+                                                session.commit()
+                                                project_id = existing.id
+                                                ui.notify("Projekt existierte bereits und wurde aktualisiert", type="positive")
+                                            else:
+                                                project = Project(
+                                                    name=name,
+                                                    color=DEFAULT_PROJECT_COLOR,
+                                                    active=bool(active_input.value),
+                                                    created_on=_parse_iso_date(created_on_input.value),
+                                                )
+                                                session.add(project)
+                                                session.commit()
+                                                project_id = project.id
+                                                ui.notify("Projekt angelegt", type="positive")
+                                        reload_project_options(selected_id=project_id if isinstance(project_id, int) else None)
+                                        if row_target is not None and isinstance(project_id, int):
+                                            row_target["project_id"] = project_id
+                                        render_allocation_editor()
+                                        refresh_allocation_summary()
+                                        dialog.close()
+                                    except Exception as exc:
+                                        ui.notify(f"Projekt konnte nicht angelegt werden: {exc}", type="negative")
+
+                                with ui.row().classes("w-full justify-end gap-2"):
+                                    ui.button("Abbrechen", on_click=dialog.close).props("flat")
+                                    ui.button("Anlegen", on_click=save_project).props("color=primary")
+                            dialog.open()
 
                         def ensure_subcategory_for_row(row: dict[str, Any]) -> None:
                             cost_type_id = row.get("cost_type_id")
@@ -1770,16 +1994,17 @@ def register_pages(services: ServiceContainer) -> None:
                                     ensure_standard_single_row()
                                     row = allocation_rows[0]
                                     with ui.column().classes("w-full gap-2"):
-                                        cost_type_input = ui.select(
-                                            cost_type_select_options,
-                                            value=row.get("cost_type_id"),
-                                            label="Kostenkategorie",
-                                            clearable=True,
-                                        ).props(
-                                            "use-input input-debounce=0"
-                                        ).classes(
-                                            "w-full"
-                                        )
+                                        with ui.row().classes("bm-allocation-line"):
+                                            cost_type_input = ui.select(
+                                                cost_type_select_options,
+                                                value=row.get("cost_type_id"),
+                                                label="Kostenkategorie",
+                                                clearable=True,
+                                            ).props("use-input input-debounce=0").classes("bm-allocation-main-field")
+                                            ui.input(
+                                                "Anteil",
+                                                value="100%",
+                                            ).props("readonly").classes("bm-allocation-side-field")
 
                                         subcategory_input = ui.select(
                                             subcategory_options_for_type(
@@ -1794,18 +2019,18 @@ def register_pages(services: ServiceContainer) -> None:
                                             label="Unterkategorie",
                                             clearable=True,
                                         ).props("use-input input-debounce=0").classes("w-full")
-                                        with ui.row().classes("w-full gap-2 items-end wrap"):
+                                        with ui.row().classes("bm-allocation-line"):
                                             project_input = ui.select(
                                                 project_map,
                                                 value=row.get("project_id"),
                                                 label="Projekt (optional)",
                                                 clearable=True,
-                                            ).props("use-input input-debounce=0").classes("min-w-0 flex-1")
-
-                                            ui.input(
-                                                "Anteil",
-                                                value="100%",
-                                            ).props("readonly").classes("w-28")
+                                            ).props("use-input input-debounce=0").classes("bm-allocation-main-field")
+                                            project_add_btn = ui.button(
+                                                icon="add",
+                                                on_click=lambda row_ref=row: open_quick_project_dialog(row_ref),
+                                            ).props("flat round dense").classes("bm-inline-create-btn")
+                                            project_add_btn.tooltip("Neues Projekt anlegen")
 
                                     def update_standard_fields() -> None:
                                         row["cost_type_id"] = to_optional_int(cost_type_input.value)
@@ -1842,16 +2067,18 @@ def register_pages(services: ServiceContainer) -> None:
                                     for idx, row in enumerate(allocation_rows):
                                         with ui.card().classes("bm-card p-2 w-full"):
                                             with ui.column().classes("w-full gap-2"):
-                                                cost_type_input = ui.select(
-                                                    cost_type_select_options,
-                                                    value=row.get("cost_type_id"),
-                                                    label="Kostenkategorie",
-                                                    clearable=True,
-                                                ).props(
-                                                    "use-input input-debounce=0"
-                                                ).classes(
-                                                    "w-full"
-                                                )
+                                                with ui.row().classes("bm-allocation-line"):
+                                                    cost_type_input = ui.select(
+                                                        cost_type_select_options,
+                                                        value=row.get("cost_type_id"),
+                                                        label="Kostenkategorie",
+                                                        clearable=True,
+                                                    ).props("use-input input-debounce=0").classes("bm-allocation-main-field")
+
+                                                    amount_input = ui.input(
+                                                        f"Betrag ({settings.default_currency})",
+                                                        value=row.get("amount_text") or "",
+                                                    ).props("input-debounce=0").classes("bm-allocation-side-field")
 
                                                 subcategory_input = ui.select(
                                                     subcategory_options_for_type(
@@ -1867,18 +2094,18 @@ def register_pages(services: ServiceContainer) -> None:
                                                     clearable=True,
                                                 ).props("use-input input-debounce=0").classes("w-full")
 
-                                                with ui.row().classes("w-full gap-2 items-end wrap"):
+                                                with ui.row().classes("bm-allocation-line"):
                                                     project_input = ui.select(
                                                         project_map,
                                                         value=row.get("project_id"),
                                                         label="Projekt (optional)",
                                                         clearable=True,
-                                                    ).props("use-input input-debounce=0").classes("min-w-0 flex-1")
-
-                                                    amount_input = ui.input(
-                                                        f"Betrag ({settings.default_currency})",
-                                                        value=row.get("amount_text") or "",
-                                                    ).props("input-debounce=0").classes("w-40")
+                                                    ).props("use-input input-debounce=0").classes("bm-allocation-main-field")
+                                                    project_add_btn = ui.button(
+                                                        icon="add",
+                                                        on_click=lambda row_ref=row: open_quick_project_dialog(row_ref),
+                                                    ).props("flat round dense").classes("bm-inline-create-btn")
+                                                    project_add_btn.tooltip("Neues Projekt anlegen")
                                                 if len(allocation_rows) > 1:
                                                     ui.button(
                                                         icon="remove_circle",
@@ -2000,6 +2227,7 @@ def register_pages(services: ServiceContainer) -> None:
                         if is_deleted:
                             date_input.disable()
                             supplier_input.disable()
+                            supplier_add_btn.disable()
                             document_type_input.disable()
                             gross_input.disable()
                             vat_input.disable()
