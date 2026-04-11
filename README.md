@@ -108,7 +108,8 @@ Wichtig:
 - Die GitHub-URL (`https://github.com/hjenkel/atelierbuddy`) gehört zum `git clone`-Schritt.
 - Sie wird **nicht** in `docker-compose.yml` eingetragen.
 - Für produktiven Betrieb sollte `BM_SESSION_SECRET` gesetzt sein (z. B. via `.env` wie oben).
-- Für LAN-Zugriff ggf. `BM_ALLOWED_HOSTS` und optional `BM_ALLOWED_ORIGINS` ergänzen.
+- Für strengere Host-Prüfung `BM_ALLOWED_HOSTS` explizit setzen (Default erlaubt alle Hosts).
+- Für Reverse-Proxy/HTTPS-Setups optional `BM_ALLOWED_ORIGINS` explizit setzen.
 
 ### Betrieb im Alltag
 ```bash
@@ -183,7 +184,8 @@ Beim ersten Start wird der Setup-Token im Terminal ausgegeben (Zeile mit `Atelie
   - Wenn leer, wird ein temporäres Secret erzeugt (Sessions sind dann nicht restart-stabil).
 - `BM_ALLOWED_HOSTS`:
   - Kommagetrennte Host-Allowlist für `TrustedHostMiddleware`.
-  - Default: `127.0.0.1,localhost`
+  - Default: `*` (alle Hosts erlaubt, LAN-freundlich)
+  - Empfehlung für härtere Produktion: explizite Liste setzen, z. B. `localhost,127.0.0.1,srv-home-01,192.168.178.50`
 - `BM_ALLOWED_ORIGINS`:
   - Optionale kommagetrennte Origin-Allowlist.
   - Wenn leer: gleiche Origin zur aktuellen Host-URL.

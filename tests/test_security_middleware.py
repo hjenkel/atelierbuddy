@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 from fastapi import FastAPI, Request, WebSocket
 from fastapi.responses import PlainTextResponse
 from fastapi.testclient import TestClient
@@ -11,6 +13,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from belegmanager.models import AppUser
 from belegmanager.security import AuthRequiredMiddleware, OriginValidationMiddleware
+import belegmanager.security as security_module
 from belegmanager.services.auth_service import AuthService
 
 
@@ -168,7 +171,12 @@ def test_ws_accepts_valid_origin_and_session() -> None:
         assert websocket.receive_text() == "ws"
 
 
-def test_ws_rejects_invalid_host() -> None:
+def test_ws_rejects_invalid_host(monkeypatch) -> None:
+    monkeypatch.setattr(
+        security_module,
+        "settings",
+        replace(security_module.settings, allowed_hosts=("localhost",)),
+    )
     client = TestClient(_build_app(with_user=True), base_url="http://localhost")
     login_response = client.post("/login", headers={"origin": "http://localhost"})
     assert login_response.status_code == 200

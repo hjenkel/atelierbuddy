@@ -27,7 +27,7 @@ class Settings:
     default_currency: str = "EUR"
     default_vat_rate_percent: float = 19.0
     session_secret: str = ""
-    allowed_hosts: tuple[str, ...] = ("127.0.0.1", "localhost")
+    allowed_hosts: tuple[str, ...] = ("*",)
     allowed_origins: tuple[str, ...] = ()
     session_idle_minutes: int = 8 * 60
     session_max_age_hours: int = 7 * 24
@@ -100,7 +100,7 @@ settings = Settings(
     app_port=_env_int("BM_PORT", 8080),
     ocr_languages=_env_str("BM_OCR_LANGUAGES", "deu+eng"),
     session_secret=_env_str("BM_SESSION_SECRET", ""),
-    allowed_hosts=_split_csv(_env_str("BM_ALLOWED_HOSTS", "127.0.0.1,localhost")),
+    allowed_hosts=_split_csv(_env_str("BM_ALLOWED_HOSTS", "*")),
     allowed_origins=_split_csv(_env_str("BM_ALLOWED_ORIGINS", "")),
     session_idle_minutes=_env_int("BM_SESSION_IDLE_MINUTES", 8 * 60),
     session_max_age_hours=_env_int("BM_SESSION_MAX_AGE_HOURS", 7 * 24),

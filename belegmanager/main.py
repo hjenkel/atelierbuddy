@@ -25,6 +25,11 @@ def run() -> None:
     allowed_hosts = [host.strip() for host in settings.allowed_hosts if host.strip()]
     if allowed_hosts:
         app.add_middleware(TrustedHostMiddleware, allowed_hosts=allowed_hosts)
+        if "*" in allowed_hosts:
+            LOG.warning(
+                "BM_ALLOWED_HOSTS erlaubt aktuell alle Host-Header ('*'). "
+                "Setze BM_ALLOWED_HOSTS restriktiver fuer haertere Produktionseinstellungen."
+            )
 
     apply_theme()
     services = get_services()
