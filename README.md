@@ -50,13 +50,16 @@ Wenn du Erfahrung mit Python, Buchhaltungslogik, Security oder UX hast:
 
 ### Schritt-fuer-Schritt
 ```bash
-# 1) Repository klonen
+# 1) In deinen gewuenschten Zielordner wechseln (z. B. Projekt-, Docker- oder Home-Verzeichnis)
+cd /pfad/zu/deinem/zielordner
+
+# 2) Repository klonen
 git clone https://github.com/hjenkel/atelierbuddy.git
 
-# 2) In den Projektordner wechseln
+# 3) In den Projektordner wechseln
 cd atelierbuddy
 
-# 3) Mit der im Repo enthaltenen docker-compose.yml starten
+# 4) Mit der im Repo enthaltenen docker-compose.yml starten
 docker compose up --build -d
 ```
 
