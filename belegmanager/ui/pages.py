@@ -1537,7 +1537,7 @@ def register_pages(services: ServiceContainer) -> None:
                             supplier_add_btn = ui.button(
                                 icon="add",
                                 on_click=lambda: open_quick_supplier_dialog(),
-                            ).props("flat round dense").classes("bm-inline-create-btn")
+                            ).props("flat").classes("bm-inline-create-btn")
                             supplier_add_btn.tooltip("Neuen Anbieter anlegen")
                         document_type_value = (
                             receipt.document_type
@@ -2029,7 +2029,7 @@ def register_pages(services: ServiceContainer) -> None:
                                             project_add_btn = ui.button(
                                                 icon="add",
                                                 on_click=lambda row_ref=row: open_quick_project_dialog(row_ref),
-                                            ).props("flat round dense").classes("bm-inline-create-btn")
+                                            ).props("flat").classes("bm-inline-create-btn")
                                             project_add_btn.tooltip("Neues Projekt anlegen")
 
                                     def update_standard_fields() -> None:
@@ -2104,7 +2104,7 @@ def register_pages(services: ServiceContainer) -> None:
                                                     project_add_btn = ui.button(
                                                         icon="add",
                                                         on_click=lambda row_ref=row: open_quick_project_dialog(row_ref),
-                                                    ).props("flat round dense").classes("bm-inline-create-btn")
+                                                    ).props("flat").classes("bm-inline-create-btn")
                                                     project_add_btn.tooltip("Neues Projekt anlegen")
                                                 if len(allocation_rows) > 1:
                                                     ui.button(

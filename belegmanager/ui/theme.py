@@ -1009,12 +1009,12 @@ def apply_theme() -> None:
         }
 
         .q-btn.bm-inline-create-btn {
-          height: 44px !important;
-          min-height: 44px !important;
-          max-height: 44px !important;
-          width: 44px !important;
-          min-width: 44px !important;
-          max-width: 44px !important;
+          height: 56px !important;
+          min-height: 56px !important;
+          max-height: 56px !important;
+          width: 56px !important;
+          min-width: 56px !important;
+          max-width: 56px !important;
           padding: 0 !important;
           border-radius: 8px !important;
           border: 2px solid var(--bm-border) !important;
@@ -1025,8 +1025,37 @@ def apply_theme() -> None:
         }
 
         .q-btn.bm-inline-create-btn .q-btn__content {
-          min-height: 40px !important;
+          min-height: 52px !important;
           line-height: 1 !important;
+        }
+
+        .bm-allocation-line .q-field {
+          margin-bottom: 0 !important;
+          min-height: 56px !important;
+          height: 56px !important;
+        }
+
+        .bm-allocation-main-field.q-field,
+        .bm-allocation-side-field.q-field {
+          min-height: 56px !important;
+          height: 56px !important;
+        }
+
+        .bm-allocation-main-field .q-field__control,
+        .bm-allocation-side-field .q-field__control,
+        .bm-allocation-line .q-field__control {
+          min-height: 56px !important;
+          height: 56px !important;
+        }
+
+        .bm-allocation-line > * {
+          align-self: flex-end;
+        }
+
+        .bm-allocation-line .q-btn.bm-inline-create-btn {
+          height: 56px !important;
+          min-height: 56px !important;
+          max-height: 56px !important;
         }
 
         .bm-allocation-line {
