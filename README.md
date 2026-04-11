@@ -1,58 +1,64 @@
 # Atelier Buddy
 
-Lokale Python-Web-App fuer die kreative Studioverwaltung von selbststaendigen Kuenstler:innen.
+Lokale Python-Web-App fuer einfache Belegverwaltung in kreativen Arbeitskontexten.
 
 Aktuelle Version: `0.1.0` (pre-alpha)
+
+## Wofuer ist das?
+Atelier Buddy ist fuer **Kuenstler:innen, Bands und andere Kreative** gedacht, die ihre Ausgaben strukturiert erfassen wollen, ohne klassische Enterprise-Buchhaltungssoftware.
+
+Fokus aktuell:
+- einfache Belegverwaltung
+- saubere Zuordnung von Ausgaben
+- Vorbereitung fuer EUER-Auswertungen
+
+Nicht im Fokus aktuell:
+- USt-Voranmeldungen
+- ELSTER-Integration
+- rechtsverbindliche Steuererklaerungs-Funktionen
+
+## Wichtige Hinweise (Haftung, Nutzung, Verantwortung)
+- Die Software wird **ohne Gewaehrleistung** bereitgestellt ("as is").
+- Es wird **keine Haftung** fuer Datenverlust, Fehlberechnungen oder steuerliche Folgen uebernommen.
+- Die App hat **keine steuerliche oder rechtliche Pruefung** durch Steuerberatung/Kanzlei erhalten.
+- Nutzung erfolgt in eigener Verantwortung.
+- **Regelmaessige Backups sind dringend empfohlen.**
+
+## Vibecoding-Transparenz
+Dieses Projekt wurde komplett **vibecoded** erstellt.
+
+Das heisst: Es kann fachliche, technische und sicherheitsrelevante Luecken geben.
+Wenn du Erfahrung mit Python, Buchhaltungslogik, Security oder UX hast:
+**Code-Reviews, Validierung und Verbesserungen sind sehr willkommen.**
 
 ## Features
 - Batch-Import von Belegen (PDF, JPG, PNG, HEIC) direkt in der Belege-Seite
 - OCR mit `ocrmypdf` (deu+eng)
 - Volltextsuche via SQLite FTS5
 - Kostenzuordnung pro Beleg mit Kostenkategorie + Unterkategorie + optionalem Projekt
-- Wenn kein Projekt gewählt wird, erfolgt intern automatisch die Zuordnung zur Kostenstelle `Allgemeine Ausgabe`
+- Wenn kein Projekt gewaehlt wird, erfolgt intern automatisch die Zuordnung zur Kostenstelle `Allgemeine Ausgabe`
 - Standardmodus mit 100%-Zuordnung und optionaler Split-Aufteilung
-- Lieferanten-Stammdaten und Lieferantenzuordnung (genau ein Lieferant pro Beleg)
+- Anbieter-Stammdaten und Anbieterzuordnung
 - Rechnungsbetrag mit Brutto/USt/Netto
 - Cover-Foto pro Projekt (optimiertes WebP)
-- Projektdatum pro Projekt (optional)
-- Kostenkategorien mit Symbolauswahl (selbst anlegbar)
-- Unterkategorien pro Kostenkategorie (1:n), inkl. nicht löschbarem Standard `Allgemein`
-- Starter-Set Kostenkategorien: Material, Software, Miete, Werbung, Reisen, Weiterbildung, Sonstiges
 - Beleg-Vollstaendigkeitsstatus (Pflichtfelder)
 - Thumbnail-Archiv und Belegdetail als Vollseite (Originaldatei links, Indexierung rechts)
 
-## Voraussetzungen
-- Python 3.12+
-- `ocrmypdf` im Systempfad
+## Installation mit Docker (empfohlen)
+### Voraussetzungen
+- Docker Desktop (oder Docker Engine + Compose Plugin)
 
-macOS (Beispiel):
-```bash
-brew install ocrmypdf tesseract ghostscript
-brew install tesseract-lang
-```
-
-## Installation
-```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -e .
-```
-
-## Start
-```bash
-python -m belegmanager
-```
-
-App-URL: `http://127.0.0.1:8080`
-
-## Docker (empfohlen)
+### Start
 ```bash
 docker compose up --build -d
 ```
 
-App-URL (Docker): `http://localhost:12321`
+App-URL: `http://localhost:12321`
 
-Nutzliche Befehle:
+### Empfohlener Betrieb
+Empfohlen ist ein kleiner lokaler Host im Heim-/Studio-Netz, z. B. ein Raspberry Pi oder Mini-PC, auf dem Docker dauerhaft laeuft.
+
+### Nuezliche Docker-Befehle
 ```bash
 # Status/Logs
 docker compose ps
@@ -66,13 +72,57 @@ docker compose down
 docker compose up --build -d
 ```
 
-Hinweis:
+Hinweise:
 - Persistente Daten liegen im Docker Named Volume `atelier_buddy_data` (`/app/data` im Container).
-- Lokaler Python-Start ohne Docker bleibt weiterhin moeglich.
+- OCR-Binaries und Sprachpakete sind im Docker-Image enthalten.
+
+## Lokale Installation (ohne Docker)
+### Voraussetzungen
+- Python 3.12+
+- `ocrmypdf`, `tesseract`, `ghostscript` im Systempfad
+
+macOS (Beispiel):
+```bash
+brew install ocrmypdf tesseract ghostscript
+brew install tesseract-lang
+```
+
+Ubuntu/Debian (Beispiel):
+```bash
+sudo apt update
+sudo apt install -y ocrmypdf tesseract-ocr tesseract-ocr-deu tesseract-ocr-eng ghostscript
+```
+
+### Schritte
+```bash
+# 1) Projektordner
+cd /pfad/zu/atelierbuddy
+
+# 2) virtuelle Umgebung
+python3.12 -m venv .venv
+source .venv/bin/activate
+
+# 3) Abhaengigkeiten
+python -m pip install -U pip
+python -m pip install -e .
+
+# 4) Start
+python -m belegmanager
+```
+
+App-URL lokal: `http://127.0.0.1:8080`
+
+## Daten & Backups
+Lokale Daten liegen unter `data/`:
+- `data/belegmanager.db`
+- `data/archive/`
+
+Einfaches Backup-Beispiel:
+```bash
+tar -czf atelierbuddy-backup-$(date +%Y-%m-%d).tar.gz data
+```
 
 ## Hinweise
-- Die App arbeitet lokal und speichert Daten in `data/belegmanager.db`.
-- Importierte Dateien werden nach `data/archive` kopiert.
 - Bei internem Schema-Marker-Wechsel (`db.py` -> `SCHEMA_VERSION`) wird ein automatischer Full-Reset ausgefuehrt (DB + Archiv), da kein Alt-Daten-Mapping verwendet wird.
 - Falls `ocrmypdf` fehlt, werden OCR-Jobs mit Fehlermeldung markiert.
 - Falls `deu` in Tesseract fehlt, laeuft OCR mit verfuegbaren Sprachen weiter (z. B. `eng`) und zeigt einen Setup-Hinweis.
