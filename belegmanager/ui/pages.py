@@ -736,35 +736,43 @@ def register_pages(services: ServiceContainer) -> None:
     def dashboard_page() -> None:
         with _shell("/", "Dashboard"):
             stats_config = [
-                ("belege", "Belege"),
-                ("projekte", "Projekte"),
-                ("kategorien", "Kostenkategorien"),
-                ("queue", "Queue"),
-                ("fehler", "Fehler"),
+                ("belege", "Belege", "/belege"),
+                ("projekte", "Projekte", "/projekte"),
+                ("anbieter", "Anbieter", "/lieferanten"),
+                ("kategorien", "Kostenkategorien", "/kategorien"),
             ]
             stat_values: dict[str, ui.label] = {}
             taskboard_column = ui.column().classes("w-full gap-3")
 
-            with ui.row().classes("w-full gap-4"):
-                for key, label in stats_config:
-                    with ui.card().classes("bm-card bm-stat-card p-4 w-44"):
+            ui.label("Übersicht").classes("text-lg font-semibold bm-on-dark-title")
+            with ui.row().classes("w-full gap-4 wrap"):
+                for key, label, target_path in stats_config:
+                    stat_card = ui.card().classes("bm-card bm-stat-card p-4 w-44 cursor-pointer")
+                    stat_card.on("click", lambda _, nav=target_path: ui.navigate.to(nav))
+                    with stat_card:
                         ui.label(label).classes("text-sm bm-stat-label")
                         stat_values[key] = ui.label("0").classes("text-3xl font-bold")
-                        ui.element("div").classes(f"bm-stat-meter bm-stat-meter--{key}")
 
             def open_receipt_detail(receipt_id: int | None) -> None:
                 if not receipt_id:
                     return
                 ui.navigate.to(f"/belege/{receipt_id}")
 
+            def format_upload_date(uploaded_at: datetime | None) -> str:
+                if uploaded_at is None:
+                    return "-"
+                dt = uploaded_at if uploaded_at.tzinfo else uploaded_at.replace(tzinfo=timezone.utc)
+                return dt.astimezone().strftime("%d.%m.%Y")
+
             def render_taskboard(receipts: list[Receipt], remaining_count: int) -> None:
                 taskboard_column.clear()
                 with taskboard_column:
-                    with ui.row().classes("w-full items-center justify-between"):
-                        ui.label("Belege mit fehlenden Angaben").classes("text-lg font-semibold bm-on-dark-title")
-                        ui.button("+", on_click=lambda: open_import_dialog(refresh_dashboard)).props(
-                            "round unelevated color=primary"
-                        ).classes("text-lg font-extrabold")
+                    ui.button(
+                        "Belege hochladen",
+                        icon="upload_file",
+                        on_click=lambda: open_import_dialog(refresh_dashboard),
+                    ).props("color=primary unelevated no-caps").classes("bm-toolbar-btn")
+                    ui.label("Belege mit fehlenden Angaben").classes("text-lg font-semibold bm-on-dark-title")
 
                     if not receipts:
                         with ui.card().classes("bm-card p-4"):
@@ -774,17 +782,20 @@ def register_pages(services: ServiceContainer) -> None:
                     with ui.row().classes("w-full gap-3 items-start wrap"):
                         for receipt in receipts:
                             thumb_url = to_files_url(receipt.thumbnail_path)
-                            thumb_card = ui.card().classes("bm-card p-1 cursor-pointer")
-                            thumb_card.style("width:120px;height:120px;overflow:hidden;")
+                            thumb_card = ui.card().classes("bm-card bm-dashboard-thumb-card cursor-pointer")
                             thumb_card.on("click", lambda _, rid=receipt.id: open_receipt_detail(rid))
                             with thumb_card:
-                                if thumb_url:
-                                    ui.image(thumb_url).classes("w-full h-full rounded-lg object-cover")
-                                else:
-                                    with ui.element("div").classes(
-                                        "w-full h-full rounded-lg bg-slate-100 flex items-center justify-center"
-                                    ):
-                                        ui.icon("description", size="36px")
+                                with ui.element("div").classes("bm-dashboard-thumb-media"):
+                                    if thumb_url:
+                                        ui.image(thumb_url).classes("w-full h-full rounded-lg object-cover")
+                                    else:
+                                        with ui.element("div").classes(
+                                            "w-full h-full rounded-lg bg-slate-100 flex items-center justify-center"
+                                        ):
+                                            ui.icon("description", size="36px")
+                                with ui.element("div").classes("bm-dashboard-thumb-meta"):
+                                    ui.label("Hochgeladen am:").classes("bm-dashboard-thumb-caption")
+                                    ui.label(format_upload_date(receipt.created_at)).classes("bm-dashboard-thumb-date")
 
                     if remaining_count > 0:
                         ui.label(f"+{remaining_count} weitere offen").classes("text-sm bm-on-dark-title")
@@ -794,21 +805,8 @@ def register_pages(services: ServiceContainer) -> None:
                     total_receipts = len(session.exec(select(Receipt.id).where(Receipt.deleted_at.is_(None))).all())
                     total_projects = len(session.exec(select(Project.id)).all())
                     total_categories = len(session.exec(select(CostType.id)).all())
-                    queued = len(
-                        session.exec(
-                            select(Receipt.id).where(Receipt.status == "queued", Receipt.deleted_at.is_(None))
-                        ).all()
-                    )
-                    running = len(
-                        session.exec(
-                            select(Receipt.id).where(Receipt.status == "running", Receipt.deleted_at.is_(None))
-                        ).all()
-                    )
-                    errors = len(
-                        session.exec(
-                            select(Receipt.id).where(Receipt.status == "error", Receipt.deleted_at.is_(None))
-                        ).all()
-                    )
+                    total_suppliers = len(session.exec(select(Supplier.id)).all())
+
                     receipts = list(
                         session.exec(
                             select(Receipt)
@@ -824,8 +822,7 @@ def register_pages(services: ServiceContainer) -> None:
                 stat_values["belege"].text = str(total_receipts)
                 stat_values["projekte"].text = str(total_projects)
                 stat_values["kategorien"].text = str(total_categories)
-                stat_values["queue"].text = str(queued + running + services.job_queue.pending_count())
-                stat_values["fehler"].text = str(errors)
+                stat_values["anbieter"].text = str(total_suppliers)
                 render_taskboard(shown_receipts, remaining_count)
 
             refresh_dashboard()
@@ -3371,6 +3368,38 @@ def register_pages(services: ServiceContainer) -> None:
                 ui.label(f"App-Version: {__version__}")
                 ui.label(APP_COPYRIGHT)
                 ui.label(f"Lizenz: {APP_LICENSE_ID}")
+
+                with ui.card().classes("bm-card p-3 w-full max-w-lg gap-1"):
+                    ui.label("Debug").classes("text-sm font-semibold")
+                    with ui.row().classes("w-full items-center justify-between"):
+                        ui.label("Queue/Pending").classes("text-xs text-slate-600")
+                        debug_queue_value = ui.label("0").classes("text-sm font-semibold")
+                    with ui.row().classes("w-full items-center justify-between"):
+                        ui.label("Fehler").classes("text-xs text-slate-600")
+                        debug_error_value = ui.label("0").classes("text-sm font-semibold")
+
+                def refresh_debug_values() -> None:
+                    with Session(engine) as session:
+                        queued = len(
+                            session.exec(
+                                select(Receipt.id).where(Receipt.status == "queued", Receipt.deleted_at.is_(None))
+                            ).all()
+                        )
+                        running = len(
+                            session.exec(
+                                select(Receipt.id).where(Receipt.status == "running", Receipt.deleted_at.is_(None))
+                            ).all()
+                        )
+                        errors = len(
+                            session.exec(
+                                select(Receipt.id).where(Receipt.status == "error", Receipt.deleted_at.is_(None))
+                            ).all()
+                        )
+                    debug_queue_value.text = str(queued + running + services.job_queue.pending_count())
+                    debug_error_value.text = str(errors)
+
+                refresh_debug_values()
+                ui.timer(5.0, refresh_debug_values)
 
                 def open_third_party_notices() -> None:
                     notices_state: dict[str, Any] = {

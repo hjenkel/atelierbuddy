@@ -952,30 +952,46 @@ def apply_theme() -> None:
           font-weight: 700;
         }
 
-        .bm-stat-meter {
-          height: 6px;
-          border-radius: 999px;
-          border: 1px solid var(--bm-border);
+        .bm-dashboard-thumb-card {
+          width: 172px;
+          min-height: 214px;
+          padding: 8px;
+          gap: 8px;
+          display: flex;
+          flex-direction: column;
         }
 
-        .bm-stat-meter--belege {
-          background: var(--bm-accent-alert);
+        .bm-dashboard-thumb-media {
+          width: 100%;
+          height: 138px;
+          border: 2px solid var(--bm-border);
+          border-radius: 8px;
+          overflow: hidden;
+          background: #fff;
+          display: flex;
+          align-items: center;
+          justify-content: center;
         }
 
-        .bm-stat-meter--projekte {
-          background: var(--bm-accent-positive);
+        .bm-dashboard-thumb-meta {
+          display: flex;
+          flex-direction: column;
+          gap: 2px;
+          padding: 0 2px;
         }
 
-        .bm-stat-meter--kategorien {
-          background: var(--bm-accent-primary);
+        .bm-dashboard-thumb-caption {
+          font-size: 0.72rem;
+          font-weight: 700;
+          color: var(--bm-muted);
+          line-height: 1.1;
         }
 
-        .bm-stat-meter--queue {
-          background: var(--bm-accent-play-2);
-        }
-
-        .bm-stat-meter--fehler {
-          background: var(--bm-accent-play-1);
+        .bm-dashboard-thumb-date {
+          font-size: 0.85rem;
+          font-weight: 800;
+          color: var(--bm-text);
+          line-height: 1.2;
         }
 
         @media (max-width: 1180px) {
