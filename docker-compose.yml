@@ -7,8 +7,7 @@ services:
       - "12321:8080"
     environment:
       BM_HOST: "0.0.0.0"
-      BM_PORT: "8080"
-      BM_OCR_LANGUAGES: "deu+eng"
+      BM_SESSION_SECRET: "${BM_SESSION_SECRET:-}"
       PYTHONUNBUFFERED: "1"
     volumes:
       - atelier_buddy_data:/app/data

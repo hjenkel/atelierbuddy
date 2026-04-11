@@ -32,6 +32,8 @@ Wenn du Erfahrung mit Python, Buchhaltungslogik, Security oder UX hast:
 **Code-Reviews, Validierung und Verbesserungen sind sehr willkommen.**
 
 ## Features
+- Login-Schutz mit einmaligem Setup-Token für die Ersteinrichtung
+- Session-Sicherheit mit Idle-Timeout, absoluter Session-Laufzeit und Logout
 - Batch-Import von Belegen (PDF, JPG, PNG, HEIC) direkt in der Belege-Seite
 - OCR mit `ocrmypdf` (deu+eng)
 - Volltextsuche via SQLite FTS5
@@ -43,6 +45,18 @@ Wenn du Erfahrung mit Python, Buchhaltungslogik, Security oder UX hast:
 - Cover-Foto pro Projekt (optimiertes WebP)
 - Beleg-Vollständigkeitsstatus (Pflichtfelder)
 - Thumbnail-Archiv und Belegdetail als Vollseite (Originaldatei links, Indexierung rechts)
+
+## Sicherheits-Baseline (v1)
+- verpflichtende Anmeldung über `/login`
+- einmalige Ersteinrichtung über `/setup` mit Setup-Token (Token wird im Server-Log ausgegeben)
+- Passworthashing mit Argon2id (`argon2-cffi`)
+- Session-Limits:
+  - Idle-Timeout: Default `8h`
+  - absolute Session-Laufzeit: Default `7d`
+- Trusted-Host- und Origin-Validierung für relevante Requests
+- Security-Header (`X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy`, `Permissions-Policy`, `frame-ancestors`)
+- Upload-Härtung mit Größenlimit, Inhaltsprüfung und Symlink-Blockade
+- `/files` liefert nur noch Inhalte aus `data/archive/*` (keine DB-/Schema-Dateien)
 
 ## Schnellstart mit Docker (empfohlen)
 ### Voraussetzungen
@@ -59,22 +73,42 @@ git clone https://github.com/hjenkel/atelierbuddy.git
 # 3) In den Projektordner wechseln
 cd atelierbuddy
 
-# 4) Mit der im Repo enthaltenen docker-compose.yml starten
+# 4) (empfohlen) einmalig Session-Secret setzen
+echo "BM_SESSION_SECRET=$(openssl rand -hex 32)" > .env
+
+# 5) Mit der im Repo enthaltenen docker-compose.yml starten
 docker compose up --build -d
 ```
 
 App-URL: `http://localhost:12321`
+
+### Ersteinrichtung (Setup-Token)
+Beim allerersten Start muss ein Admin-Account über `/setup` angelegt werden.
+
+1. Setup-Token aus den Container-Logs lesen:
+   ```bash
+   docker compose logs -f atelier-buddy
+   ```
+2. Auf die Zeile achten:
+   `Atelier Buddy Setup Token (nur einmalig bis erster Benutzer angelegt ist): <TOKEN>`
+3. `http://localhost:12321/setup` öffnen und diesen Token einfügen.
+
+Hinweis:
+- Der Setup-Token gilt immer nur für die aktuell laufende Instanz.
+- Nach einem Neustart (solange noch kein erster Benutzer existiert) wird ein neuer Token erzeugt.
 
 ### Was wird dabei genutzt?
 - Es wird die bereits im Repository enthaltene Datei `docker-compose.yml` verwendet.
 - Vorkonfiguriert sind:
   - Port-Mapping `12321:8080`
   - Persistenz-Volume `atelier_buddy_data` nach `/app/data`
-  - OCR-Sprachen `deu+eng`
+  - Security- und Laufzeit-Defaults kommen aus der App-Konfiguration (`config.py`) und sind über ENV optional überschreibbar
 
 Wichtig:
 - Die GitHub-URL (`https://github.com/hjenkel/atelierbuddy`) gehört zum `git clone`-Schritt.
 - Sie wird **nicht** in `docker-compose.yml` eingetragen.
+- Für produktiven Betrieb sollte `BM_SESSION_SECRET` gesetzt sein (z. B. via `.env` wie oben).
+- Für LAN-Zugriff ggf. `BM_ALLOWED_HOSTS` und optional `BM_ALLOWED_ORIGINS` ergänzen.
 
 ### Betrieb im Alltag
 ```bash
@@ -138,6 +172,28 @@ python -m belegmanager
 ```
 
 App-URL lokal: `http://127.0.0.1:8080`
+
+Beim ersten Start wird der Setup-Token im Terminal ausgegeben (Zeile mit `Atelier Buddy Setup Token ...`). Diesen Token unter `/setup` verwenden.
+
+## Sicherheitsrelevante ENV-Parameter
+- Alle Parameter sind optional; die App hat sinnvolle Defaults.
+- In `docker-compose.yml` werden bewusst nur minimale Standardwerte gesetzt, alles Weitere nur bei Bedarf überschrieben.
+- `BM_SESSION_SECRET`:
+  - Secret für signierte Session-Cookies.
+  - Wenn leer, wird ein temporäres Secret erzeugt (Sessions sind dann nicht restart-stabil).
+- `BM_ALLOWED_HOSTS`:
+  - Kommagetrennte Host-Allowlist für `TrustedHostMiddleware`.
+  - Default: `127.0.0.1,localhost`
+- `BM_ALLOWED_ORIGINS`:
+  - Optionale kommagetrennte Origin-Allowlist.
+  - Wenn leer: gleiche Origin zur aktuellen Host-URL.
+- `BM_SESSION_IDLE_MINUTES`: Default `480` (`8h`)
+- `BM_SESSION_MAX_AGE_HOURS`: Default `168` (`7d`)
+- `BM_SECURE_COOKIES`:
+  - `auto` (Default), `true`, `false`
+  - `auto`: Secure-Cookie bei HTTPS / `X-Forwarded-Proto=https`
+- `BM_MAX_UPLOAD_MB`: Upload-Größenlimit in MB, Default `25`
+- `BM_OCR_TIMEOUT_SECONDS`: OCR-Timeout pro Beleg in Sekunden, Default `300`
 
 ## Daten & Backups
 Lokale Daten liegen unter `data/`:

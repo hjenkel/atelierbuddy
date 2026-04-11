@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import uuid
 from contextlib import contextmanager
 from datetime import date, datetime, timezone
@@ -10,7 +11,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from nicegui import events, ui
-from sqlalchemy import delete, func, or_, update as sa_update
+from sqlalchemy import or_
 from sqlalchemy.orm import selectinload
 from sqlmodel import Session, select
 
@@ -18,18 +19,16 @@ from ..app_state import ServiceContainer
 from ..config import settings
 from ..constants import (
     COST_TYPE_ICON_OPTIONS,
-    DEFAULT_SUBCATEGORY_NAME,
     DEFAULT_COST_TYPE_ICON,
-    default_subcategory_name_for_cost_type,
 )
 from ..db import engine
 from ..models import CostAllocation, CostSubcategory, CostType, Project, Receipt, Supplier
 from ..schemas import AllocationInput
 from ..utils.storage import is_supported_filename, save_uploaded_work_cover, safe_delete_file, to_files_url
 
-DEFAULT_PROJECT_COLOR = "#5c30ff"
 DOC_TYPE_INVOICE = "invoice"
 DOC_TYPE_CREDIT_NOTE = "credit_note"
+LOG = logging.getLogger(__name__)
 _NAV_STATE = {
     "sidebar_expanded": True,
     "open_groups": {"management": True},
@@ -105,6 +104,15 @@ _DEFAULT_HELP_CONTENT = {
     "title": "Hilfe",
     "body": "Hier findest du Kontext zur aktuellen Seite. Weitere Hilfefunktionen können später ergänzt werden.",
 }
+
+
+def _notify_error(user_message: str, exc: Exception) -> None:
+    if isinstance(exc, ValueError):
+        ui.notify(f"{user_message}: {exc}", type="negative")
+        return
+    error_id = uuid.uuid4().hex[:8]
+    LOG.exception("UI action failed (%s): %s", error_id, user_message)
+    ui.notify(f"{user_message}. Fehler-ID: {error_id}", type="negative")
 
 
 def _parse_iso_date(value: str | None) -> date | None:
@@ -491,6 +499,10 @@ def _shell(active_path: str, title: str):
                         icon="settings",
                         on_click=lambda: ui.navigate.to("/einstellungen"),
                     ).props("flat round dense").classes("bm-global-icon-btn")
+                    ui.button(
+                        icon="logout",
+                        on_click=lambda: ui.navigate.to("/logout"),
+                    ).props("flat round dense").classes("bm-global-icon-btn")
 
         with ui.row().classes("bm-app-shell w-full"):
             sidebar_classes = "bm-sidebar"
@@ -555,6 +567,8 @@ def _shell(active_path: str, title: str):
 
 
 def register_pages(services: ServiceContainer) -> None:
+    masterdata = services.masterdata_service
+
     def project_options(active_only: bool = True) -> dict[int, str]:
         with Session(engine) as session:
             stmt = select(Project).order_by(Project.name)
@@ -713,7 +727,7 @@ def register_pages(services: ServiceContainer) -> None:
                     if on_import_done:
                         on_import_done()
                 except Exception as exc:
-                    ui.notify(f"Import fehlgeschlagen: {exc}", type="negative")
+                    _notify_error("Import fehlgeschlagen", exc)
 
             with ui.row().classes("w-full justify-between items-center"):
                 ui.button("Abbrechen", on_click=dialog.close).props("flat")
@@ -1011,7 +1025,7 @@ def register_pages(services: ServiceContainer) -> None:
                                     services.receipt_service.hard_delete(receipt_id)
                                     ui.notify("Beleg endgültig gelöscht", type="positive")
                                 except Exception as exc:
-                                    ui.notify(f"Endgültiges Löschen fehlgeschlagen: {exc}", type="negative")
+                                    _notify_error("Endgültiges Löschen fehlgeschlagen", exc)
                                     return
                                 dialog.close()
                                 rerender()
@@ -1026,7 +1040,7 @@ def register_pages(services: ServiceContainer) -> None:
                         services.receipt_service.move_to_trash(receipt_id)
                         ui.notify("Beleg in Gelöschte Belege verschoben", type="positive")
                     except Exception as exc:
-                        ui.notify(f"Löschen fehlgeschlagen: {exc}", type="negative")
+                        _notify_error("Löschen fehlgeschlagen", exc)
                         return
                     render_results()
 
@@ -1037,7 +1051,7 @@ def register_pages(services: ServiceContainer) -> None:
                         services.receipt_service.restore_from_trash(receipt_id)
                         ui.notify("Beleg wiederhergestellt", type="positive")
                     except Exception as exc:
-                        ui.notify(f"Wiederherstellung fehlgeschlagen: {exc}", type="negative")
+                        _notify_error("Wiederherstellung fehlgeschlagen", exc)
                         return
                     render_results()
 
@@ -1657,27 +1671,19 @@ def register_pages(services: ServiceContainer) -> None:
                                         ui.notify("Anbietername fehlt", type="negative")
                                         return
                                     try:
-                                        with Session(engine) as session:
-                                            existing = session.exec(
-                                                select(Supplier).where(func.lower(Supplier.name) == name.casefold())
-                                            ).first()
-                                            if existing:
-                                                existing.active = bool(active_input.value)
-                                                existing.updated_at = datetime.now(timezone.utc)
-                                                session.add(existing)
-                                                session.commit()
-                                                supplier_id = existing.id
-                                                ui.notify("Anbieter existierte bereits und wurde aktualisiert", type="positive")
-                                            else:
-                                                supplier = Supplier(name=name, active=bool(active_input.value))
-                                                session.add(supplier)
-                                                session.commit()
-                                                supplier_id = supplier.id
-                                                ui.notify("Anbieter angelegt", type="positive")
+                                        supplier, created = masterdata.create_or_update_supplier(
+                                            name=name,
+                                            active=bool(active_input.value),
+                                        )
+                                        supplier_id = supplier.id
+                                        ui.notify(
+                                            "Anbieter angelegt" if created else "Anbieter existierte bereits und wurde aktualisiert",
+                                            type="positive",
+                                        )
                                         reload_supplier_options(selected_id=supplier_id if isinstance(supplier_id, int) else None)
                                         dialog.close()
                                     except Exception as exc:
-                                        ui.notify(f"Anbieter konnte nicht angelegt werden: {exc}", type="negative")
+                                        _notify_error("Anbieter konnte nicht angelegt werden", exc)
 
                                 with ui.row().classes("w-full justify-end gap-2"):
                                     ui.button("Abbrechen", on_click=dialog.close).props("flat")
@@ -1697,28 +1703,16 @@ def register_pages(services: ServiceContainer) -> None:
                                         ui.notify("Projektname fehlt", type="negative")
                                         return
                                     try:
-                                        with Session(engine) as session:
-                                            existing = session.exec(
-                                                select(Project).where(func.lower(Project.name) == name.casefold())
-                                            ).first()
-                                            if existing:
-                                                existing.active = bool(active_input.value)
-                                                existing.created_on = _parse_iso_date(created_on_input.value)
-                                                session.add(existing)
-                                                session.commit()
-                                                project_id = existing.id
-                                                ui.notify("Projekt existierte bereits und wurde aktualisiert", type="positive")
-                                            else:
-                                                project = Project(
-                                                    name=name,
-                                                    color=DEFAULT_PROJECT_COLOR,
-                                                    active=bool(active_input.value),
-                                                    created_on=_parse_iso_date(created_on_input.value),
-                                                )
-                                                session.add(project)
-                                                session.commit()
-                                                project_id = project.id
-                                                ui.notify("Projekt angelegt", type="positive")
+                                        project, created = masterdata.create_or_update_project(
+                                            name=name,
+                                            active=bool(active_input.value),
+                                            created_on=_parse_iso_date(created_on_input.value),
+                                        )
+                                        project_id = project.id
+                                        ui.notify(
+                                            "Projekt angelegt" if created else "Projekt existierte bereits und wurde aktualisiert",
+                                            type="positive",
+                                        )
                                         reload_project_options(selected_id=project_id if isinstance(project_id, int) else None)
                                         if row_target is not None and isinstance(project_id, int):
                                             row_target["project_id"] = project_id
@@ -1726,7 +1720,7 @@ def register_pages(services: ServiceContainer) -> None:
                                         refresh_allocation_summary()
                                         dialog.close()
                                     except Exception as exc:
-                                        ui.notify(f"Projekt konnte nicht angelegt werden: {exc}", type="negative")
+                                        _notify_error("Projekt konnte nicht angelegt werden", exc)
 
                                 with ui.row().classes("w-full justify-end gap-2"):
                                     ui.button("Abbrechen", on_click=dialog.close).props("flat")
@@ -2241,7 +2235,7 @@ def register_pages(services: ServiceContainer) -> None:
                                 ui.notify("Beleg in Gelöschte Belege verschoben", type="positive")
                                 ui.navigate.to("/belege")
                             except Exception as exc:
-                                ui.notify(f"Löschen fehlgeschlagen: {exc}", type="negative")
+                                _notify_error("Löschen fehlgeschlagen", exc)
 
                         def _detail_restore(receipt_id_for_action: int | None) -> None:
                             if not receipt_id_for_action:
@@ -2251,7 +2245,7 @@ def register_pages(services: ServiceContainer) -> None:
                                 ui.notify("Beleg wiederhergestellt", type="positive")
                                 ui.navigate.to("/belege")
                             except Exception as exc:
-                                ui.notify(f"Wiederherstellung fehlgeschlagen: {exc}", type="negative")
+                                _notify_error("Wiederherstellung fehlgeschlagen", exc)
 
                         def _detail_save() -> None:
                             try:
@@ -2312,7 +2306,7 @@ def register_pages(services: ServiceContainer) -> None:
                                     allocations=allocation_payload,
                                 )
                             except Exception as exc:
-                                ui.notify(f"Speichern fehlgeschlagen: {exc}", type="negative")
+                                _notify_error("Speichern fehlgeschlagen", exc)
                                 return
 
                             ui.notify("Beleg gespeichert", type="positive")
@@ -2335,30 +2329,19 @@ def register_pages(services: ServiceContainer) -> None:
                                 ui.notify("Projektname fehlt", type="negative")
                                 return
                             try:
-                                with Session(engine) as session:
-                                    existing = session.exec(
-                                        select(Project).where(func.lower(Project.name) == name.casefold())
-                                    ).first()
-                                    if existing:
-                                        existing.active = bool(active_input.value)
-                                        existing.created_on = _parse_iso_date(created_on_input.value)
-                                        session.add(existing)
-                                        session.commit()
-                                        ui.notify("Projekt existierte bereits und wurde aktualisiert", type="positive")
-                                    else:
-                                        project = Project(
-                                            name=name,
-                                            color=DEFAULT_PROJECT_COLOR,
-                                            active=bool(active_input.value),
-                                            created_on=_parse_iso_date(created_on_input.value),
-                                        )
-                                        session.add(project)
-                                        session.commit()
-                                        ui.notify("Projekt angelegt", type="positive")
+                                _, created = masterdata.create_or_update_project(
+                                    name=name,
+                                    active=bool(active_input.value),
+                                    created_on=_parse_iso_date(created_on_input.value),
+                                )
+                                ui.notify(
+                                    "Projekt angelegt" if created else "Projekt existierte bereits und wurde aktualisiert",
+                                    type="positive",
+                                )
                                 dialog.close()
                                 render_projects()
                             except Exception as exc:
-                                ui.notify(f"Projekt konnte nicht angelegt werden: {exc}", type="negative")
+                                _notify_error("Projekt konnte nicht angelegt werden", exc)
 
                         with ui.row().classes("w-full justify-end gap-2"):
                             ui.button("Abbrechen", on_click=dialog.close).props("flat")
@@ -2371,17 +2354,13 @@ def register_pages(services: ServiceContainer) -> None:
                 project_column = ui.column().classes("w-full gap-2")
 
                 def delete_project(project_id: int) -> None:
-                    old_cover_path: str | None = None
-                    with Session(engine) as session:
-                        session.exec(delete(CostAllocation).where(CostAllocation.project_id == project_id))
-                        project = session.get(Project, project_id)
-                        if project:
-                            old_cover_path = project.cover_image_path
-                            session.delete(project)
-                        session.commit()
-                    safe_delete_file(old_cover_path)
-                    ui.notify("Projekt entfernt", type="positive")
-                    render_projects()
+                    try:
+                        old_cover_path = masterdata.delete_project(project_id=project_id)
+                        safe_delete_file(old_cover_path)
+                        ui.notify("Projekt entfernt", type="positive")
+                        render_projects()
+                    except Exception as exc:
+                        _notify_error("Projekt konnte nicht gelöscht werden", exc)
 
                 def open_cover_dialog(project_id: int) -> None:
                     with ui.dialog() as dialog, ui.card().classes("p-4 w-[520px] max-w-full"):
@@ -2392,28 +2371,19 @@ def register_pages(services: ServiceContainer) -> None:
                             if not event.files:
                                 return
                             file_upload = event.files[0]
-                            old_cover_path: str | None = None
                             try:
-                                with Session(engine) as session:
-                                    project = session.get(Project, project_id)
-                                    if not project:
-                                        raise ValueError("Projekt nicht gefunden")
-                                    old_cover_path = project.cover_image_path
                                 new_cover_path = await save_uploaded_work_cover(file_upload, project_id)
-                                with Session(engine) as session:
-                                    project = session.get(Project, project_id)
-                                    if not project:
-                                        raise ValueError("Projekt nicht gefunden")
-                                    project.cover_image_path = str(new_cover_path)
-                                    session.add(project)
-                                    session.commit()
+                                old_cover_path = masterdata.set_project_cover(
+                                    project_id=project_id,
+                                    cover_path=str(new_cover_path),
+                                )
                                 if old_cover_path and old_cover_path != str(new_cover_path):
                                     safe_delete_file(old_cover_path)
                                 ui.notify("Projekt-Cover gespeichert", type="positive")
                                 dialog.close()
                                 render_projects()
                             except Exception as exc:
-                                ui.notify(f"Cover konnte nicht gespeichert werden: {exc}", type="negative")
+                                _notify_error("Cover konnte nicht gespeichert werden", exc)
 
                         upload = ui.upload(
                             multiple=False,
@@ -2563,27 +2533,18 @@ def register_pages(services: ServiceContainer) -> None:
                             if not event.files:
                                 return
                             file_upload = event.files[0]
-                            old_cover_path: str | None = None
                             try:
-                                with Session(engine) as session:
-                                    project_for_cover = session.get(Project, pid)
-                                    if not project_for_cover:
-                                        raise ValueError("Projekt nicht gefunden")
-                                    old_cover_path = project_for_cover.cover_image_path
                                 new_cover_path = await save_uploaded_work_cover(file_upload, pid)
-                                with Session(engine) as session:
-                                    project_for_cover = session.get(Project, pid)
-                                    if not project_for_cover:
-                                        raise ValueError("Projekt nicht gefunden")
-                                    project_for_cover.cover_image_path = str(new_cover_path)
-                                    session.add(project_for_cover)
-                                    session.commit()
+                                old_cover_path = masterdata.set_project_cover(
+                                    project_id=pid,
+                                    cover_path=str(new_cover_path),
+                                )
                                 if old_cover_path and old_cover_path != str(new_cover_path):
                                     safe_delete_file(old_cover_path)
                                 ui.notify("Projekt-Cover gespeichert", type="positive")
                                 ui.navigate.to(f"/projekte/{pid}")
                             except Exception as exc:
-                                ui.notify(f"Cover konnte nicht gespeichert werden: {exc}", type="negative")
+                                _notify_error("Cover konnte nicht gespeichert werden", exc)
 
                         upload = ui.upload(
                             multiple=False,
@@ -2615,41 +2576,25 @@ def register_pages(services: ServiceContainer) -> None:
                                 ui.notify("Projektname fehlt", type="negative")
                                 return
                             try:
-                                with Session(engine) as session:
-                                    current = session.get(Project, pid)
-                                    if not current:
-                                        raise ValueError("Projekt nicht gefunden")
-                                    duplicate = session.exec(
-                                        select(Project).where(
-                                            func.lower(Project.name) == name.casefold(),
-                                            Project.id != pid,
-                                        )
-                                    ).first()
-                                    if duplicate:
-                                        raise ValueError("Projektname existiert bereits")
-
-                                    current.name = name
-                                    current.active = bool(active_input.value)
-                                    current.created_on = _parse_iso_date(created_on_input.value)
-                                    session.add(current)
-                                    session.commit()
+                                masterdata.update_project(
+                                    project_id=pid,
+                                    name=name,
+                                    active=bool(active_input.value),
+                                    created_on=_parse_iso_date(created_on_input.value),
+                                )
                                 ui.notify("Projekt gespeichert", type="positive")
                                 ui.navigate.to(f"/projekte/{pid}")
                             except Exception as exc:
-                                ui.notify(f"Speichern fehlgeschlagen: {exc}", type="negative")
+                                _notify_error("Speichern fehlgeschlagen", exc)
 
                         def _delete_and_back() -> None:
-                            old_cover_path: str | None = None
-                            with Session(engine) as session:
-                                session.exec(delete(CostAllocation).where(CostAllocation.project_id == pid))
-                                current = session.get(Project, pid)
-                                if current:
-                                    old_cover_path = current.cover_image_path
-                                    session.delete(current)
-                                session.commit()
-                            safe_delete_file(old_cover_path)
-                            ui.notify("Projekt entfernt", type="positive")
-                            ui.navigate.to("/projekte")
+                            try:
+                                old_cover_path = masterdata.delete_project(project_id=pid)
+                                safe_delete_file(old_cover_path)
+                                ui.notify("Projekt entfernt", type="positive")
+                                ui.navigate.to("/projekte")
+                            except Exception as exc:
+                                _notify_error("Projekt konnte nicht gelöscht werden", exc)
 
     @ui.page("/lieferanten")
     def suppliers_page() -> None:
@@ -2667,25 +2612,18 @@ def register_pages(services: ServiceContainer) -> None:
                                 ui.notify("Anbietername fehlt", type="negative")
                                 return
                             try:
-                                with Session(engine) as session:
-                                    existing = session.exec(
-                                        select(Supplier).where(func.lower(Supplier.name) == name.casefold())
-                                    ).first()
-                                    if existing:
-                                        existing.active = bool(active_input.value)
-                                        existing.updated_at = datetime.now(timezone.utc)
-                                        session.add(existing)
-                                        session.commit()
-                                        ui.notify("Anbieter existierte bereits und wurde aktualisiert", type="positive")
-                                    else:
-                                        supplier = Supplier(name=name, active=bool(active_input.value))
-                                        session.add(supplier)
-                                        session.commit()
-                                        ui.notify("Anbieter angelegt", type="positive")
+                                _, created = masterdata.create_or_update_supplier(
+                                    name=name,
+                                    active=bool(active_input.value),
+                                )
+                                ui.notify(
+                                    "Anbieter angelegt" if created else "Anbieter existierte bereits und wurde aktualisiert",
+                                    type="positive",
+                                )
                                 dialog.close()
                                 render_suppliers()
                             except Exception as exc:
-                                ui.notify(f"Anbieter konnte nicht angelegt werden: {exc}", type="negative")
+                                _notify_error("Anbieter konnte nicht angelegt werden", exc)
 
                         with ui.row().classes("w-full justify-end gap-2"):
                             ui.button("Abbrechen", on_click=dialog.close).props("flat")
@@ -2698,14 +2636,12 @@ def register_pages(services: ServiceContainer) -> None:
                 suppliers_column = ui.column().classes("w-full gap-2")
 
                 def delete_supplier(supplier_id: int) -> None:
-                    with Session(engine) as session:
-                        session.exec(sa_update(Receipt).where(Receipt.supplier_id == supplier_id).values(supplier_id=None))
-                        supplier = session.get(Supplier, supplier_id)
-                        if supplier:
-                            session.delete(supplier)
-                        session.commit()
-                    ui.notify("Anbieter entfernt", type="positive")
-                    render_suppliers()
+                    try:
+                        masterdata.delete_supplier(supplier_id=supplier_id)
+                        ui.notify("Anbieter entfernt", type="positive")
+                        render_suppliers()
+                    except Exception as exc:
+                        _notify_error("Anbieter konnte nicht gelöscht werden", exc)
 
                 def open_edit_supplier_dialog(supplier_id: int) -> None:
                     with Session(engine) as session:
@@ -2728,30 +2664,16 @@ def register_pages(services: ServiceContainer) -> None:
                                 return
 
                             try:
-                                with Session(engine) as session:
-                                    supplier = session.get(Supplier, supplier_id)
-                                    if not supplier:
-                                        raise ValueError("Anbieter nicht gefunden")
-
-                                    duplicate = session.exec(
-                                        select(Supplier).where(
-                                            func.lower(Supplier.name) == name.casefold(),
-                                            Supplier.id != supplier_id,
-                                        )
-                                    ).first()
-                                    if duplicate:
-                                        raise ValueError("Anbietername existiert bereits")
-
-                                    supplier.name = name
-                                    supplier.active = bool(active_edit.value)
-                                    supplier.updated_at = datetime.now(timezone.utc)
-                                    session.add(supplier)
-                                    session.commit()
+                                masterdata.update_supplier(
+                                    supplier_id=supplier_id,
+                                    name=name,
+                                    active=bool(active_edit.value),
+                                )
                                 ui.notify("Anbieter gespeichert", type="positive")
                                 dialog.close()
                                 render_suppliers()
                             except Exception as exc:
-                                ui.notify(f"Speichern fehlgeschlagen: {exc}", type="negative")
+                                _notify_error("Speichern fehlgeschlagen", exc)
 
                         with ui.row().classes("w-full justify-end gap-2"):
                             ui.button("Abbrechen", on_click=dialog.close).props("flat")
@@ -2817,62 +2739,6 @@ def register_pages(services: ServiceContainer) -> None:
 
         with _shell("/kategorien", "Kostenkategorien"):
             with ui.card().classes("bm-card p-4 w-full"):
-                def ensure_default_subcategory(session: Session, category_id: int) -> None:
-                    category = session.get(CostType, category_id)
-                    if not category:
-                        return
-                    expected_name = default_subcategory_name_for_cost_type(category.name)
-                    existing_items = list(
-                        session.exec(select(CostSubcategory).where(CostSubcategory.cost_type_id == category_id)).all()
-                    )
-                    expected_item = next(
-                        (item for item in existing_items if item.name.casefold() == expected_name.casefold()),
-                        None,
-                    )
-                    system_defaults = [item for item in existing_items if item.is_system_default]
-                    legacy_default = next(
-                        (item for item in existing_items if item.name.casefold() == DEFAULT_SUBCATEGORY_NAME.casefold()),
-                        None,
-                    )
-                    default_item = expected_item or (system_defaults[0] if system_defaults else legacy_default)
-                    if default_item:
-                        if default_item.name != expected_name:
-                            default_item.name = expected_name
-                        if not default_item.is_system_default:
-                            default_item.is_system_default = True
-                        if not default_item.active:
-                            default_item.active = True
-                        if default_item.archived_with_parent:
-                            default_item.archived_with_parent = False
-                        session.add(default_item)
-                    else:
-                        default_item = CostSubcategory(
-                            cost_type_id=category_id,
-                            name=expected_name,
-                            is_system_default=True,
-                            active=True,
-                            archived_with_parent=False,
-                        )
-                        session.add(default_item)
-                        session.flush()
-
-                    for item in system_defaults:
-                        if default_item.id is not None and item.id == default_item.id:
-                            continue
-                        if item.is_system_default:
-                            item.is_system_default = False
-                            session.add(item)
-
-                def is_cost_type_used(session: Session, category_id: int) -> bool:
-                    used = session.exec(select(CostAllocation.id).where(CostAllocation.cost_type_id == category_id)).first()
-                    return used is not None
-
-                def is_subcategory_used(session: Session, subcategory_id: int) -> bool:
-                    used = session.exec(
-                        select(CostAllocation.id).where(CostAllocation.cost_subcategory_id == subcategory_id)
-                    ).first()
-                    return used is not None
-
                 def open_create_cost_type_dialog() -> None:
                     with ui.dialog() as dialog, ui.card().classes("p-4 w-[560px] max-w-full"):
                         ui.label("Neue Kostenkategorie").classes("text-lg font-semibold")
@@ -2891,40 +2757,17 @@ def register_pages(services: ServiceContainer) -> None:
                                 return
                             icon = str(icon_select.value or DEFAULT_COST_TYPE_ICON)
                             try:
-                                with Session(engine) as session:
-                                    existing = session.exec(
-                                        select(CostType).where(func.lower(CostType.name) == name.casefold())
-                                    ).first()
-                                    if existing:
-                                        existing.icon = icon
-                                        if not existing.active:
-                                            existing.active = True
-                                        session.add(existing)
-                                        if existing.id is not None:
-                                            for item in session.exec(
-                                                select(CostSubcategory).where(
-                                                    CostSubcategory.cost_type_id == existing.id,
-                                                    CostSubcategory.archived_with_parent.is_(True),
-                                                )
-                                            ).all():
-                                                item.active = True
-                                                item.archived_with_parent = False
-                                                session.add(item)
-                                            ensure_default_subcategory(session, existing.id)
-                                        session.commit()
-                                        ui.notify("Kostenkategorie existierte bereits und wurde aktualisiert", type="positive")
-                                    else:
-                                        category = CostType(name=name, icon=icon, active=True)
-                                        session.add(category)
-                                        session.flush()
-                                        if category.id is not None:
-                                            ensure_default_subcategory(session, category.id)
-                                        session.commit()
-                                        ui.notify("Kostenkategorie angelegt", type="positive")
+                                _, created = masterdata.create_or_update_cost_type(name=name, icon=icon)
+                                ui.notify(
+                                    "Kostenkategorie angelegt"
+                                    if created
+                                    else "Kostenkategorie existierte bereits und wurde aktualisiert",
+                                    type="positive",
+                                )
                                 dialog.close()
                                 set_category_view("active")
                             except Exception as exc:
-                                ui.notify(f"Kostenkategorie konnte nicht angelegt werden: {exc}", type="negative")
+                                _notify_error("Kostenkategorie konnte nicht angelegt werden", exc)
 
                         with ui.row().classes("w-full justify-end gap-2"):
                             ui.button("Abbrechen", on_click=dialog.close).props("flat")
@@ -2957,54 +2800,18 @@ def register_pages(services: ServiceContainer) -> None:
                     if category_id <= 0:
                         return
                     try:
-                        with Session(engine) as session:
-                            category = session.get(CostType, category_id)
-                            if not category:
-                                raise ValueError("Kostenkategorie nicht gefunden")
-
-                            if category_view_mode == "archived":
-                                category.active = True
-                                session.add(category)
-                                subcategories = list(
-                                    session.exec(
-                                        select(CostSubcategory).where(CostSubcategory.cost_type_id == category_id)
-                                    ).all()
-                                )
-                                for item in subcategories:
-                                    if item.archived_with_parent:
-                                        item.active = True
-                                        item.archived_with_parent = False
-                                        session.add(item)
-                                ensure_default_subcategory(session, category_id)
-                                session.commit()
-                                ui.notify("Kostenkategorie wiederhergestellt", type="positive")
-                                render_categories()
-                                return
-
-                            if is_cost_type_used(session, category_id):
-                                category.active = False
-                                session.add(category)
-                                subcategories = list(
-                                    session.exec(
-                                        select(CostSubcategory).where(CostSubcategory.cost_type_id == category_id)
-                                    ).all()
-                                )
-                                for item in subcategories:
-                                    if item.active:
-                                        item.active = False
-                                        item.archived_with_parent = True
-                                        session.add(item)
-                                session.commit()
-                                ui.notify("Kostenkategorie archiviert", type="positive")
-                                render_categories()
-                                return
-
-                            session.exec(delete(CostSubcategory).where(CostSubcategory.cost_type_id == category_id))
-                            session.delete(category)
-                            session.commit()
+                        if category_view_mode == "archived":
+                            masterdata.restore_cost_type(category_id=category_id)
+                            ui.notify("Kostenkategorie wiederhergestellt", type="positive")
+                            render_categories()
+                            return
+                        action = masterdata.archive_or_delete_cost_type(category_id=category_id)
+                        if action == "archived":
+                            ui.notify("Kostenkategorie archiviert", type="positive")
+                        else:
                             ui.notify("Unbenutzte Kostenkategorie gelöscht", type="positive")
                     except Exception as exc:
-                        ui.notify(str(exc), type="negative")
+                        _notify_error("Aktion auf Kostenkategorie fehlgeschlagen", exc)
                     render_categories()
 
                 def open_edit_category_dialog(category_id: int) -> None:
@@ -3122,99 +2929,37 @@ def register_pages(services: ServiceContainer) -> None:
                                 ui.notify("Unterkategorie-Name fehlt", type="negative")
                                 return
                             try:
-                                with Session(engine) as session:
-                                    category = session.get(CostType, category_id)
-                                    if not category:
-                                        raise ValueError("Kostenkategorie nicht gefunden")
-                                    if not category.active:
-                                        raise ValueError("Unterkategorien können nur bei aktiven Kostenkategorien ergänzt werden")
-
-                                    duplicate = session.exec(
-                                        select(CostSubcategory).where(
-                                            CostSubcategory.cost_type_id == category_id,
-                                            func.lower(CostSubcategory.name) == name.casefold(),
-                                        )
-                                    ).first()
-                                    if duplicate:
-                                        if duplicate.active:
-                                            raise ValueError("Unterkategorie existiert bereits")
-                                        duplicate.active = True
-                                        duplicate.archived_with_parent = False
-                                        session.add(duplicate)
-                                        session.commit()
-                                        ui.notify("Unterkategorie wiederhergestellt", type="positive")
-                                        new_subcategory_input.value = ""
-                                        show_archived_subcategories = False
-                                        render_archived_toggle()
-                                        render_subcategories()
-                                        return
-
-                                    session.add(
-                                        CostSubcategory(
-                                            cost_type_id=category_id,
-                                            name=name,
-                                            is_system_default=False,
-                                            active=True,
-                                            archived_with_parent=False,
-                                        )
-                                    )
-                                    session.commit()
+                                _, created = masterdata.add_subcategory(category_id=category_id, name=name)
                                 new_subcategory_input.value = ""
-                                ui.notify("Unterkategorie angelegt", type="positive")
+                                ui.notify("Unterkategorie angelegt" if created else "Unterkategorie wiederhergestellt", type="positive")
                                 show_archived_subcategories = False
                                 render_archived_toggle()
                                 render_subcategories()
                             except Exception as exc:
-                                ui.notify(f"Unterkategorie konnte nicht angelegt werden: {exc}", type="negative")
+                                _notify_error("Unterkategorie konnte nicht angelegt werden", exc)
 
                         def run_subcategory_primary_action(subcategory_id: int | None) -> None:
                             if not subcategory_id:
                                 return
                             try:
-                                with Session(engine) as session:
-                                    subcategory = session.get(CostSubcategory, subcategory_id)
-                                    if not subcategory:
-                                        raise ValueError("Unterkategorie nicht gefunden")
-                                    if subcategory.is_system_default:
-                                        raise ValueError("Die Standard-Unterkategorie kann nicht gelöscht oder archiviert werden")
-
-                                    if is_subcategory_used(session, subcategory_id):
-                                        subcategory.active = False
-                                        subcategory.archived_with_parent = False
-                                        session.add(subcategory)
-                                        session.commit()
-                                        ui.notify("Unterkategorie archiviert", type="positive")
-                                        render_subcategories()
-                                        return
-
-                                    session.delete(subcategory)
-                                    session.commit()
-                                ui.notify("Unterkategorie gelöscht", type="positive")
+                                action = masterdata.subcategory_primary_action(subcategory_id=subcategory_id)
+                                if action == "archived":
+                                    ui.notify("Unterkategorie archiviert", type="positive")
+                                else:
+                                    ui.notify("Unterkategorie gelöscht", type="positive")
                                 render_subcategories()
                             except Exception as exc:
-                                ui.notify(str(exc), type="negative")
+                                _notify_error("Aktion auf Unterkategorie fehlgeschlagen", exc)
 
                         def restore_subcategory(subcategory_id: int | None) -> None:
                             if not subcategory_id:
                                 return
                             try:
-                                with Session(engine) as session:
-                                    subcategory = session.get(CostSubcategory, subcategory_id)
-                                    if not subcategory:
-                                        raise ValueError("Unterkategorie nicht gefunden")
-                                    category = session.get(CostType, subcategory.cost_type_id)
-                                    if not category or not category.active:
-                                        raise ValueError(
-                                            "Unterkategorie kann nur wiederhergestellt werden, wenn die Kostenkategorie aktiv ist"
-                                        )
-                                    subcategory.active = True
-                                    subcategory.archived_with_parent = False
-                                    session.add(subcategory)
-                                    session.commit()
+                                masterdata.restore_subcategory(subcategory_id=subcategory_id)
                                 ui.notify("Unterkategorie wiederhergestellt", type="positive")
                                 render_subcategories()
                             except Exception as exc:
-                                ui.notify(str(exc), type="negative")
+                                _notify_error("Unterkategorie konnte nicht wiederhergestellt werden", exc)
 
                         def save_category() -> None:
                             name = (name_edit.value or "").strip()
@@ -3222,28 +2967,16 @@ def register_pages(services: ServiceContainer) -> None:
                                 ui.notify("Name fehlt", type="negative")
                                 return
                             try:
-                                with Session(engine) as session:
-                                    category = session.get(CostType, category_id)
-                                    if not category:
-                                        raise ValueError("Kostenkategorie nicht gefunden")
-                                    duplicate = session.exec(
-                                        select(CostType).where(
-                                            func.lower(CostType.name) == name.casefold(),
-                                            CostType.id != category_id,
-                                        )
-                                    ).first()
-                                    if duplicate:
-                                        raise ValueError("Name existiert bereits")
-                                    category.name = name
-                                    category.icon = str(icon_edit.value or DEFAULT_COST_TYPE_ICON)
-                                    session.add(category)
-                                    ensure_default_subcategory(session, category_id)
-                                    session.commit()
+                                masterdata.update_cost_type(
+                                    category_id=category_id,
+                                    name=name,
+                                    icon=str(icon_edit.value or DEFAULT_COST_TYPE_ICON),
+                                )
                                 ui.notify("Kostenkategorie gespeichert", type="positive")
                                 dialog.close()
                                 render_categories()
                             except Exception as exc:
-                                ui.notify(f"Speichern fehlgeschlagen: {exc}", type="negative")
+                                _notify_error("Speichern fehlgeschlagen", exc)
 
                         with ui.row().classes("w-full gap-2 items-end wrap"):
                             ui.button("Unterkategorie hinzufügen", icon="add", on_click=add_subcategory).props("flat")
@@ -3759,4 +3492,6 @@ def register_pages(services: ServiceContainer) -> None:
                 ui.label(f"OCR-Sprachen: {settings.ocr_languages}")
                 ui.label(f"Währung (Default): {settings.default_currency}")
                 ui.label(f"USt-Satz (Default): {settings.default_vat_rate_percent:.2f}%")
-                ui.label("Single-User v1 ohne Login.").classes("text-sm text-slate-600")
+                ui.label("Login aktiviert (Session mit Timeout + Setup-Token für Ersteinrichtung).").classes(
+                    "text-sm text-slate-600"
+                )

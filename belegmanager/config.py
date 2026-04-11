@@ -5,6 +5,10 @@ import os
 from pathlib import Path
 
 
+def _split_csv(value: str) -> tuple[str, ...]:
+    return tuple(item.strip() for item in value.split(",") if item.strip())
+
+
 @dataclass(frozen=True)
 class Settings:
     root_dir: Path
@@ -22,6 +26,14 @@ class Settings:
     ocr_languages: str = "deu+eng"
     default_currency: str = "EUR"
     default_vat_rate_percent: float = 19.0
+    session_secret: str = ""
+    allowed_hosts: tuple[str, ...] = ("127.0.0.1", "localhost")
+    allowed_origins: tuple[str, ...] = ()
+    session_idle_minutes: int = 8 * 60
+    session_max_age_hours: int = 7 * 24
+    secure_cookies: str = "auto"
+    max_upload_mb: int = 25
+    ocr_timeout_seconds: int = 300
 
     def ensure_dirs(self) -> None:
         for directory in (
@@ -35,6 +47,10 @@ class Settings:
             self.works_cover_dir,
         ):
             directory.mkdir(parents=True, exist_ok=True)
+
+    @property
+    def max_upload_bytes(self) -> int:
+        return int(self.max_upload_mb) * 1024 * 1024
 
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
@@ -58,6 +74,17 @@ def _env_int(name: str, default: int) -> int:
     return value if value > 0 else default
 
 
+def _env_bool_like_mode(name: str, default: str = "auto") -> str:
+    value = _env_str(name, default).lower()
+    if value in {"1", "true", "yes", "on"}:
+        return "true"
+    if value in {"0", "false", "no", "off"}:
+        return "false"
+    if value == "auto":
+        return "auto"
+    return default
+
+
 settings = Settings(
     root_dir=ROOT_DIR,
     data_dir=DATA_DIR,
@@ -72,4 +99,12 @@ settings = Settings(
     app_host=_env_str("BM_HOST", "127.0.0.1"),
     app_port=_env_int("BM_PORT", 8080),
     ocr_languages=_env_str("BM_OCR_LANGUAGES", "deu+eng"),
+    session_secret=_env_str("BM_SESSION_SECRET", ""),
+    allowed_hosts=_split_csv(_env_str("BM_ALLOWED_HOSTS", "127.0.0.1,localhost")),
+    allowed_origins=_split_csv(_env_str("BM_ALLOWED_ORIGINS", "")),
+    session_idle_minutes=_env_int("BM_SESSION_IDLE_MINUTES", 8 * 60),
+    session_max_age_hours=_env_int("BM_SESSION_MAX_AGE_HOURS", 7 * 24),
+    secure_cookies=_env_bool_like_mode("BM_SECURE_COOKIES", "auto"),
+    max_upload_mb=_env_int("BM_MAX_UPLOAD_MB", 25),
+    ocr_timeout_seconds=_env_int("BM_OCR_TIMEOUT_SECONDS", 300),
 )

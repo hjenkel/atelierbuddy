@@ -31,8 +31,20 @@ class ImportService:
         source_dir = Path(folder_path).expanduser()
         if not source_dir.exists() or not source_dir.is_dir():
             raise ValueError("Der angegebene Ordner existiert nicht")
+        source_dir_resolved = source_dir.resolve()
 
-        files = sorted(path for path in source_dir.rglob("*") if path.is_file() and is_supported_receipt(path))
+        files: list[Path] = []
+        for path in source_dir.rglob("*"):
+            if not path.is_file() or path.is_symlink():
+                continue
+            if not is_supported_receipt(path):
+                continue
+            try:
+                path.resolve().relative_to(source_dir_resolved)
+            except ValueError:
+                continue
+            files.append(path)
+        files.sort()
         if not files:
             raise ValueError("Keine unterstützten Dateien gefunden")
 
@@ -47,6 +59,7 @@ class ImportService:
             error_count = 0
             for file_path in files:
                 try:
+                    file_path.resolve().relative_to(source_dir_resolved)
                     archived = copy_to_archive(file_path)
                     receipt = Receipt(
                         original_filename=file_path.name,
@@ -86,7 +99,7 @@ class ImportService:
         imported_receipt_ids: list[int] = []
         with Session(engine) as session:
             batch = ImportBatch(
-                source_folder=(source_label or "").strip() or "Browser Upload",
+                source_folder=((source_label or "").strip() or "Browser Upload")[:255],
                 started_at=datetime.now(timezone.utc),
             )
             session.add(batch)

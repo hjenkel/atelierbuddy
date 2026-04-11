@@ -1,8 +1,12 @@
 .venv/
+.env
+.env.*
+!.env.example
 __pycache__/
 *.pyc
 *.pyo
 .pytest_cache/
+.nicegui/
 data/archive/
 data/belegmanager.db
 .DS_Store

@@ -4,6 +4,36 @@ from typing import List, Optional
 from sqlmodel import Field, Relationship, SQLModel
 
 
+class AppUser(SQLModel, table=True):
+    __tablename__ = "app_user"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    username: str = Field(index=True, unique=True)
+    password_hash: str
+    active: bool = Field(default=True)
+    is_admin: bool = Field(default=True)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), index=True)
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    last_login_at: Optional[datetime] = Field(default=None)
+    locked_until: Optional[datetime] = Field(default=None)
+
+    auth_attempts: List["AuthAttempt"] = Relationship(back_populates="user")
+
+
+class AuthAttempt(SQLModel, table=True):
+    __tablename__ = "auth_attempt"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    username: str = Field(index=True)
+    user_id: Optional[int] = Field(default=None, foreign_key="app_user.id", index=True)
+    successful: bool = Field(default=False, index=True)
+    attempted_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), index=True)
+    client_ip: Optional[str] = Field(default=None)
+    user_agent: Optional[str] = Field(default=None)
+
+    user: Optional[AppUser] = Relationship(back_populates="auth_attempts")
+
+
 class CostType(SQLModel, table=True):
     __tablename__ = "cost_type"
 

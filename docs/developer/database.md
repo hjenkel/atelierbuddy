@@ -8,7 +8,8 @@ Die App nutzt SQLite mit SQLModel/SQLAlchemy.
 Hauptfokus liegt auf:
 - `receipt` als Beleg-Stammsatz,
 - `cost_allocation` als fachliche Zuordnungs-Wahrheit,
-- Stammdaten (`project`, `supplier`, `cost_type`, `cost_subcategory`).
+- Stammdaten (`project`, `supplier`, `cost_type`, `cost_subcategory`),
+- Auth-Basis (`app_user`, `auth_attempt`).
 
 Zusatz:
 - `receipt_fts` (FTS5) für Volltextsuche auf OCR-/PDF-Text.
@@ -25,6 +26,7 @@ erDiagram
     COST_AREA ||--o{ COST_ALLOCATION : fallback_target
     SUPPLIER ||--o{ RECEIPT : issued_by
     IMPORT_BATCH ||--o{ RECEIPT : imported
+    APP_USER ||--o{ AUTH_ATTEMPT : has
 
     RECEIPT {
       int id PK
@@ -59,6 +61,28 @@ erDiagram
       datetime created_at
       datetime updated_at
     }
+
+    APP_USER {
+      int id PK
+      string username
+      string password_hash
+      bool active
+      bool is_admin
+      datetime created_at
+      datetime updated_at
+      datetime last_login_at
+      datetime locked_until
+    }
+
+    AUTH_ATTEMPT {
+      int id PK
+      string username
+      int user_id FK
+      bool successful
+      datetime attempted_at
+      string client_ip
+      string user_agent
+    }
 ```
 
 ## Tabellen und fachliche Rolle
@@ -70,6 +94,8 @@ erDiagram
 - `cost_area`: technische Zielstruktur; UI-seitig aktuell ausgeblendet, u. a. für Default-Fallback.
 - `supplier`: Anbieter/Lieferant.
 - `import_batch`: Importlauf (Zählwerte und Zeiten).
+- `app_user`: lokaler Login-Benutzer (Argon2-Hash, Status, Lockout-Metadaten).
+- `auth_attempt`: Login-Versuchsprotokoll für Lockout/Monitoring.
 
 ## Wichtige technische Konventionen
 - Geldwerte in `*_cents` als Integer gespeichert.

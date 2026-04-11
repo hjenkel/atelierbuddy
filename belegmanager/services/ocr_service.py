@@ -117,9 +117,17 @@ class OCRService:
             str(target_pdf),
         ]
         try:
-            subprocess.run(cmd, check=True, capture_output=True, text=True)
+            subprocess.run(
+                cmd,
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=max(1, int(settings.ocr_timeout_seconds)),
+            )
         except FileNotFoundError as exc:
             raise RuntimeError("ocrmypdf ist nicht installiert oder nicht im PATH") from exc
+        except subprocess.TimeoutExpired as exc:
+            raise RuntimeError("OCR-Zeitlimit überschritten") from exc
         except subprocess.CalledProcessError as exc:
             stderr = (exc.stderr or "").strip()
             stdout = (exc.stdout or "").strip()

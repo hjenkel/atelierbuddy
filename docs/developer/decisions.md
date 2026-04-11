@@ -2,14 +2,17 @@
 
 Version-Single-Source: `pyproject.toml` (`0.1.0`)
 
-## 1) Lokal-first, Single-User
+## 1) Lokal-first, Self-Hosted mit Login-Basis
 Entscheidung:
-- lokale Python-Web-App ohne Login/Mehrbenutzer im aktuellen Produktstand.
+- lokale Python-Web-App mit verpflichtender Anmeldung,
+- kein vollständiges Rollen-/Rechtesystem in v1,
+- Architektur offen für spätere Mehrbenutzer-Erweiterung.
 
 Warum:
 - geringe Betriebskomplexität,
 - schnelle Iteration mit direktem Nutzerfeedback,
 - Datenschutz/Dateien bleiben lokal.
+- Zugangsschutz ist auch im LAN ein realistisches Basisbedürfnis.
 
 ## 2) SQLite + SQLModel
 Entscheidung:
@@ -83,3 +86,16 @@ Entscheidung:
 Warum:
 - Open-Source-Nutzung sauber vorbereiten,
 - rechtliche Transparenz direkt in der Anwendung.
+
+## 10) Sicherheits-Baseline pragmatisch statt Enterprise
+Entscheidung:
+- Authentifizierung mit `app_user` + Argon2id-Hashing,
+- einmalige Setup-Seite mit Setup-Token aus Server-Log,
+- Session-Timeouts (Idle + absolut) und Login-Lockout bei Fehlversuchen,
+- Trusted-Host/Origin-Checks und grundlegende Security-Header,
+- Upload-Härtung inkl. Inhaltsprüfung und Größenlimit.
+
+Warum:
+- adressiert die wichtigsten Risiken einer self-hosted Web-App,
+- bleibt überschaubar und wartbar,
+- verbaut keine spätere Mehrbenutzer-Entwicklung.

@@ -9,7 +9,7 @@ from sqlmodel import Session
 from ..config import settings
 from ..db import engine
 from ..fts import delete_fts_row
-from ..models import CostAllocation, Receipt
+from ..models import CostAllocation, Receipt, Supplier
 from ..utils.storage import normalized_pdf_path, ocr_output_paths, safe_delete_file
 
 
@@ -35,6 +35,10 @@ class ReceiptService:
                 raise ValueError("Ungültiger Belegtyp")
 
             receipt.doc_date = doc_date
+            if supplier_id is not None:
+                supplier = session.get(Supplier, supplier_id)
+                if supplier is None:
+                    raise ValueError("Anbieter nicht gefunden")
             receipt.supplier_id = supplier_id
             receipt.document_type = normalized_document_type
             if amount_gross_cents is None:

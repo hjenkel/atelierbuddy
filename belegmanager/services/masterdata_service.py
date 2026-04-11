@@ -1,0 +1,367 @@
+from __future__ import annotations
+
+from datetime import date, datetime, timezone
+
+from sqlalchemy import delete, func, update as sa_update
+from sqlmodel import Session, select
+
+from ..constants import DEFAULT_COST_TYPE_ICON, DEFAULT_SUBCATEGORY_NAME, default_subcategory_name_for_cost_type
+from ..db import engine
+from ..models import CostAllocation, CostSubcategory, CostType, Project, Receipt, Supplier
+
+
+class MasterDataService:
+    MIN_NAME_LENGTH = 2
+    MAX_NAME_LENGTH = 120
+
+    def __init__(self, db_engine=engine) -> None:
+        self._engine = db_engine
+
+    def _normalize_name(self, value: str, *, label: str = "Name") -> str:
+        name = (value or "").strip()
+        if len(name) < self.MIN_NAME_LENGTH or len(name) > self.MAX_NAME_LENGTH:
+            raise ValueError(f"{label} muss zwischen {self.MIN_NAME_LENGTH} und {self.MAX_NAME_LENGTH} Zeichen lang sein")
+        return name
+
+    def create_or_update_supplier(self, *, name: str, active: bool) -> tuple[Supplier, bool]:
+        normalized_name = self._normalize_name(name, label="Anbietername")
+        with Session(self._engine) as session:
+            existing = session.exec(select(Supplier).where(func.lower(Supplier.name) == normalized_name.casefold())).first()
+            if existing:
+                existing.active = bool(active)
+                existing.updated_at = datetime.now(timezone.utc)
+                session.add(existing)
+                session.commit()
+                session.refresh(existing)
+                return existing, False
+
+            supplier = Supplier(name=normalized_name, active=bool(active))
+            session.add(supplier)
+            session.commit()
+            session.refresh(supplier)
+            return supplier, True
+
+    def update_supplier(self, *, supplier_id: int, name: str, active: bool) -> Supplier:
+        normalized_name = self._normalize_name(name, label="Anbietername")
+        with Session(self._engine) as session:
+            supplier = session.get(Supplier, supplier_id)
+            if not supplier:
+                raise ValueError("Anbieter nicht gefunden")
+            duplicate = session.exec(
+                select(Supplier).where(
+                    func.lower(Supplier.name) == normalized_name.casefold(),
+                    Supplier.id != supplier_id,
+                )
+            ).first()
+            if duplicate:
+                raise ValueError("Anbietername existiert bereits")
+            supplier.name = normalized_name
+            supplier.active = bool(active)
+            supplier.updated_at = datetime.now(timezone.utc)
+            session.add(supplier)
+            session.commit()
+            session.refresh(supplier)
+            return supplier
+
+    def delete_supplier(self, *, supplier_id: int) -> None:
+        with Session(self._engine) as session:
+            session.exec(sa_update(Receipt).where(Receipt.supplier_id == supplier_id).values(supplier_id=None))
+            supplier = session.get(Supplier, supplier_id)
+            if not supplier:
+                raise ValueError("Anbieter nicht gefunden")
+            session.delete(supplier)
+            session.commit()
+
+    def create_or_update_project(
+        self,
+        *,
+        name: str,
+        active: bool,
+        created_on: date | None,
+    ) -> tuple[Project, bool]:
+        normalized_name = self._normalize_name(name, label="Projektname")
+        with Session(self._engine) as session:
+            existing = session.exec(select(Project).where(func.lower(Project.name) == normalized_name.casefold())).first()
+            if existing:
+                existing.active = bool(active)
+                existing.created_on = created_on
+                session.add(existing)
+                session.commit()
+                session.refresh(existing)
+                return existing, False
+
+            project = Project(
+                name=normalized_name,
+                color="#5c30ff",
+                active=bool(active),
+                created_on=created_on,
+            )
+            session.add(project)
+            session.commit()
+            session.refresh(project)
+            return project, True
+
+    def update_project(
+        self,
+        *,
+        project_id: int,
+        name: str,
+        active: bool,
+        created_on: date | None,
+    ) -> Project:
+        normalized_name = self._normalize_name(name, label="Projektname")
+        with Session(self._engine) as session:
+            current = session.get(Project, project_id)
+            if not current:
+                raise ValueError("Projekt nicht gefunden")
+            duplicate = session.exec(
+                select(Project).where(
+                    func.lower(Project.name) == normalized_name.casefold(),
+                    Project.id != project_id,
+                )
+            ).first()
+            if duplicate:
+                raise ValueError("Projektname existiert bereits")
+            current.name = normalized_name
+            current.active = bool(active)
+            current.created_on = created_on
+            session.add(current)
+            session.commit()
+            session.refresh(current)
+            return current
+
+    def set_project_cover(self, *, project_id: int, cover_path: str) -> str | None:
+        with Session(self._engine) as session:
+            project = session.get(Project, project_id)
+            if not project:
+                raise ValueError("Projekt nicht gefunden")
+            old_cover = project.cover_image_path
+            project.cover_image_path = cover_path
+            session.add(project)
+            session.commit()
+            return old_cover
+
+    def delete_project(self, *, project_id: int) -> str | None:
+        with Session(self._engine) as session:
+            session.exec(delete(CostAllocation).where(CostAllocation.project_id == project_id))
+            project = session.get(Project, project_id)
+            if not project:
+                raise ValueError("Projekt nicht gefunden")
+            old_cover_path = project.cover_image_path
+            session.delete(project)
+            session.commit()
+            return old_cover_path
+
+    def create_or_update_cost_type(self, *, name: str, icon: str) -> tuple[CostType, bool]:
+        normalized_name = self._normalize_name(name, label="Name")
+        normalized_icon = (icon or DEFAULT_COST_TYPE_ICON).strip() or DEFAULT_COST_TYPE_ICON
+        with Session(self._engine) as session:
+            existing = session.exec(select(CostType).where(func.lower(CostType.name) == normalized_name.casefold())).first()
+            if existing:
+                existing.icon = normalized_icon
+                if not existing.active:
+                    existing.active = True
+                session.add(existing)
+                if existing.id is not None:
+                    for item in session.exec(
+                        select(CostSubcategory).where(
+                            CostSubcategory.cost_type_id == existing.id,
+                            CostSubcategory.archived_with_parent.is_(True),
+                        )
+                    ).all():
+                        item.active = True
+                        item.archived_with_parent = False
+                        session.add(item)
+                    self._ensure_default_subcategory(session, existing.id)
+                session.commit()
+                session.refresh(existing)
+                return existing, False
+
+            category = CostType(name=normalized_name, icon=normalized_icon, active=True)
+            session.add(category)
+            session.flush()
+            if category.id is not None:
+                self._ensure_default_subcategory(session, category.id)
+            session.commit()
+            session.refresh(category)
+            return category, True
+
+    def update_cost_type(self, *, category_id: int, name: str, icon: str) -> CostType:
+        normalized_name = self._normalize_name(name, label="Name")
+        normalized_icon = (icon or DEFAULT_COST_TYPE_ICON).strip() or DEFAULT_COST_TYPE_ICON
+        with Session(self._engine) as session:
+            category = session.get(CostType, category_id)
+            if not category:
+                raise ValueError("Kostenkategorie nicht gefunden")
+            duplicate = session.exec(
+                select(CostType).where(
+                    func.lower(CostType.name) == normalized_name.casefold(),
+                    CostType.id != category_id,
+                )
+            ).first()
+            if duplicate:
+                raise ValueError("Name existiert bereits")
+            category.name = normalized_name
+            category.icon = normalized_icon
+            session.add(category)
+            self._ensure_default_subcategory(session, category_id)
+            session.commit()
+            session.refresh(category)
+            return category
+
+    def restore_cost_type(self, *, category_id: int) -> None:
+        with Session(self._engine) as session:
+            category = session.get(CostType, category_id)
+            if not category:
+                raise ValueError("Kostenkategorie nicht gefunden")
+            category.active = True
+            session.add(category)
+            for item in session.exec(
+                select(CostSubcategory).where(CostSubcategory.cost_type_id == category_id)
+            ).all():
+                if item.archived_with_parent:
+                    item.active = True
+                    item.archived_with_parent = False
+                    session.add(item)
+            self._ensure_default_subcategory(session, category_id)
+            session.commit()
+
+    def archive_or_delete_cost_type(self, *, category_id: int) -> str:
+        with Session(self._engine) as session:
+            category = session.get(CostType, category_id)
+            if not category:
+                raise ValueError("Kostenkategorie nicht gefunden")
+            if self._is_cost_type_used(session, category_id):
+                category.active = False
+                session.add(category)
+                for item in session.exec(
+                    select(CostSubcategory).where(CostSubcategory.cost_type_id == category_id)
+                ).all():
+                    if item.active:
+                        item.active = False
+                        item.archived_with_parent = True
+                        session.add(item)
+                session.commit()
+                return "archived"
+
+            session.exec(delete(CostSubcategory).where(CostSubcategory.cost_type_id == category_id))
+            session.delete(category)
+            session.commit()
+            return "deleted"
+
+    def add_subcategory(self, *, category_id: int, name: str) -> tuple[CostSubcategory, bool]:
+        normalized_name = self._normalize_name(name, label="Unterkategorie-Name")
+        with Session(self._engine) as session:
+            category = session.get(CostType, category_id)
+            if not category:
+                raise ValueError("Kostenkategorie nicht gefunden")
+            if not category.active:
+                raise ValueError("Unterkategorien können nur bei aktiven Kostenkategorien ergänzt werden")
+
+            duplicate = session.exec(
+                select(CostSubcategory).where(
+                    CostSubcategory.cost_type_id == category_id,
+                    func.lower(CostSubcategory.name) == normalized_name.casefold(),
+                )
+            ).first()
+            if duplicate:
+                if duplicate.active:
+                    raise ValueError("Unterkategorie existiert bereits")
+                duplicate.active = True
+                duplicate.archived_with_parent = False
+                session.add(duplicate)
+                session.commit()
+                session.refresh(duplicate)
+                return duplicate, False
+
+            item = CostSubcategory(
+                cost_type_id=category_id,
+                name=normalized_name,
+                is_system_default=False,
+                active=True,
+                archived_with_parent=False,
+            )
+            session.add(item)
+            session.commit()
+            session.refresh(item)
+            return item, True
+
+    def subcategory_primary_action(self, *, subcategory_id: int) -> str:
+        with Session(self._engine) as session:
+            subcategory = session.get(CostSubcategory, subcategory_id)
+            if not subcategory:
+                raise ValueError("Unterkategorie nicht gefunden")
+            if subcategory.is_system_default:
+                raise ValueError("Die Standard-Unterkategorie kann nicht gelöscht oder archiviert werden")
+            if self._is_subcategory_used(session, subcategory_id):
+                subcategory.active = False
+                subcategory.archived_with_parent = False
+                session.add(subcategory)
+                session.commit()
+                return "archived"
+
+            session.delete(subcategory)
+            session.commit()
+            return "deleted"
+
+    def restore_subcategory(self, *, subcategory_id: int) -> None:
+        with Session(self._engine) as session:
+            subcategory = session.get(CostSubcategory, subcategory_id)
+            if not subcategory:
+                raise ValueError("Unterkategorie nicht gefunden")
+            category = session.get(CostType, subcategory.cost_type_id)
+            if not category or not category.active:
+                raise ValueError("Unterkategorie kann nur wiederhergestellt werden, wenn die Kostenkategorie aktiv ist")
+            subcategory.active = True
+            subcategory.archived_with_parent = False
+            session.add(subcategory)
+            session.commit()
+
+    def _ensure_default_subcategory(self, session: Session, category_id: int) -> None:
+        category = session.get(CostType, category_id)
+        if not category:
+            return
+        expected_name = default_subcategory_name_for_cost_type(category.name)
+        existing_items = list(session.exec(select(CostSubcategory).where(CostSubcategory.cost_type_id == category_id)).all())
+        expected_item = next((item for item in existing_items if item.name.casefold() == expected_name.casefold()), None)
+        system_defaults = [item for item in existing_items if item.is_system_default]
+        legacy_default = next(
+            (item for item in existing_items if item.name.casefold() == DEFAULT_SUBCATEGORY_NAME.casefold()),
+            None,
+        )
+        default_item = expected_item or (system_defaults[0] if system_defaults else legacy_default)
+        if default_item:
+            if default_item.name != expected_name:
+                default_item.name = expected_name
+            if not default_item.is_system_default:
+                default_item.is_system_default = True
+            if not default_item.active:
+                default_item.active = True
+            if default_item.archived_with_parent:
+                default_item.archived_with_parent = False
+            session.add(default_item)
+        else:
+            default_item = CostSubcategory(
+                cost_type_id=category_id,
+                name=expected_name,
+                is_system_default=True,
+                active=True,
+                archived_with_parent=False,
+            )
+            session.add(default_item)
+            session.flush()
+
+        for item in system_defaults:
+            if default_item.id is not None and item.id == default_item.id:
+                continue
+            if item.is_system_default:
+                item.is_system_default = False
+                session.add(item)
+
+    def _is_cost_type_used(self, session: Session, category_id: int) -> bool:
+        used = session.exec(select(CostAllocation.id).where(CostAllocation.cost_type_id == category_id)).first()
+        return used is not None
+
+    def _is_subcategory_used(self, session: Session, subcategory_id: int) -> bool:
+        used = session.exec(select(CostAllocation.id).where(CostAllocation.cost_subcategory_id == subcategory_id)).first()
+        return used is not None
