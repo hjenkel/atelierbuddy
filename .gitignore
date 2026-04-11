@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+data/archive/
+data/belegmanager.db
+.DS_Store
+belegmanager.egg-info/
+build/
+dist/
