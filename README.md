@@ -44,21 +44,36 @@ Wenn du Erfahrung mit Python, Buchhaltungslogik, Security oder UX hast:
 - Beleg-Vollstaendigkeitsstatus (Pflichtfelder)
 - Thumbnail-Archiv und Belegdetail als Vollseite (Originaldatei links, Indexierung rechts)
 
-## Installation mit Docker (empfohlen)
+## Schnellstart mit Docker (empfohlen)
 ### Voraussetzungen
 - Docker Desktop (oder Docker Engine + Compose Plugin)
 
-### Start
+### Schritt-fuer-Schritt
 ```bash
+# 1) Repository klonen
+git clone https://github.com/hjenkel/atelierbuddy.git
+
+# 2) In den Projektordner wechseln
+cd atelierbuddy
+
+# 3) Mit der im Repo enthaltenen docker-compose.yml starten
 docker compose up --build -d
 ```
 
 App-URL: `http://localhost:12321`
 
-### Empfohlener Betrieb
-Empfohlen ist ein kleiner lokaler Host im Heim-/Studio-Netz, z. B. ein Raspberry Pi oder Mini-PC, auf dem Docker dauerhaft laeuft.
+### Was wird dabei genutzt?
+- Es wird die bereits im Repository enthaltene Datei `docker-compose.yml` verwendet.
+- Vorkonfiguriert sind:
+  - Port-Mapping `12321:8080`
+  - Persistenz-Volume `atelier_buddy_data` nach `/app/data`
+  - OCR-Sprachen `deu+eng`
 
-### Nuezliche Docker-Befehle
+Wichtig:
+- Die GitHub-URL (`https://github.com/hjenkel/atelierbuddy`) gehoert zum `git clone`-Schritt.
+- Sie wird **nicht** in `docker-compose.yml` eingetragen.
+
+### Betrieb im Alltag
 ```bash
 # Status/Logs
 docker compose ps
@@ -68,13 +83,22 @@ docker compose logs -f
 docker compose restart
 docker compose down
 
-# Update nach Codeaenderungen
+# Neu bauen + starten
 docker compose up --build -d
 ```
 
-Hinweise:
+### Update auf neue Version
+```bash
+git pull
+docker compose up --build -d
+```
+
+### Docker-Backup-Hinweis
 - Persistente Daten liegen im Docker Named Volume `atelier_buddy_data` (`/app/data` im Container).
 - OCR-Binaries und Sprachpakete sind im Docker-Image enthalten.
+
+### Empfohlener Betrieb
+Empfohlen ist ein kleiner lokaler Host im Heim-/Studio-Netz, z. B. ein Raspberry Pi oder Mini-PC, auf dem Docker dauerhaft laeuft.
 
 ## Lokale Installation (ohne Docker)
 ### Voraussetzungen
