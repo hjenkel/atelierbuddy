@@ -94,6 +94,7 @@ class Project(SQLModel, table=True):
     name: str = Field(index=True, unique=True)
     color: str = Field(default="#2ec4b6")
     active: bool = Field(default=True)
+    price_cents: Optional[int] = Field(default=None)
     cover_image_path: Optional[str] = Field(default=None)
     created_on: Optional[date] = Field(default=None, index=True)
 

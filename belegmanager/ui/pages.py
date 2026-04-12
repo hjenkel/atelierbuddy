@@ -569,13 +569,21 @@ def _shell(active_path: str, title: str):
 def register_pages(services: ServiceContainer) -> None:
     masterdata = services.masterdata_service
 
-    def project_options(active_only: bool = True) -> dict[int, str]:
+    def project_options(active_only: bool = True, include_ids: list[int] | None = None) -> dict[int, str]:
+        include_set = {item for item in (include_ids or []) if isinstance(item, int)}
         with Session(engine) as session:
             stmt = select(Project).order_by(Project.name)
             if active_only:
-                stmt = stmt.where(Project.active.is_(True))
+                if include_set:
+                    stmt = stmt.where(or_(Project.active.is_(True), Project.id.in_(include_set)))
+                else:
+                    stmt = stmt.where(Project.active.is_(True))
             projects = list(session.exec(stmt).all())
-        return {project.id: project.name for project in projects if project.id is not None}
+        return {
+            project.id: (f"{project.name} (inaktiv)" if not project.active else project.name)
+            for project in projects
+            if project.id is not None
+        }
 
     def cost_type_options(active_only: bool = True, include_ids: list[int] | None = None) -> dict[int, str]:
         include_set = {item for item in (include_ids or []) if isinstance(item, int)}
@@ -1199,11 +1207,11 @@ def register_pages(services: ServiceContainer) -> None:
                         selectinload(Receipt.allocations).selectinload(CostAllocation.project),
                     )
                 ).first()
-                projects = list(session.exec(select(Project).order_by(Project.name)).all())
                 suppliers = list(session.exec(select(Supplier).order_by(Supplier.name)).all())
 
                 selected_cost_type_ids: list[int] = []
                 selected_subcategory_ids: list[int] = []
+                selected_project_ids: list[int] = []
                 if receipt:
                     selected_cost_type_ids = sorted(
                         {
@@ -1217,6 +1225,13 @@ def register_pages(services: ServiceContainer) -> None:
                             allocation.cost_subcategory_id
                             for allocation in receipt.allocations
                             if isinstance(allocation.cost_subcategory_id, int)
+                        }
+                    )
+                    selected_project_ids = sorted(
+                        {
+                            allocation.project_id
+                            for allocation in receipt.allocations
+                            if isinstance(allocation.project_id, int)
                         }
                     )
 
@@ -1591,7 +1606,7 @@ def register_pages(services: ServiceContainer) -> None:
                             ).props("readonly").classes("min-w-0 flex-1")
 
                         cost_type_select_options = {item.id: item.name for item in cost_types if item.id is not None}
-                        project_map = {item.id: item.name for item in projects if item.id is not None}
+                        project_map = project_options(active_only=True, include_ids=selected_project_ids)
                         subcategories_by_type: dict[int, list[CostSubcategory]] = {}
                         default_subcategory_by_type: dict[int, int] = {}
                         for subcategory in cost_subcategories:
@@ -1654,10 +1669,13 @@ def register_pages(services: ServiceContainer) -> None:
                             supplier_input.set_options(supplier_map, value=next_value)
 
                         def reload_project_options(selected_id: int | None = None) -> None:
-                            nonlocal projects, project_map
-                            with Session(engine) as session:
-                                projects = list(session.exec(select(Project).order_by(Project.name)).all())
-                            project_map = {item.id: item.name for item in projects if item.id is not None}
+                            nonlocal project_map
+                            include_ids = [
+                                item
+                                for item in [selected_id, *(to_optional_int(row.get("project_id")) for row in allocation_rows)]
+                                if isinstance(item, int)
+                            ]
+                            project_map = project_options(active_only=True, include_ids=include_ids)
 
                         def open_quick_supplier_dialog() -> None:
                             with ui.dialog() as dialog, ui.card().classes("p-4 w-[480px] max-w-full"):
@@ -1694,6 +1712,7 @@ def register_pages(services: ServiceContainer) -> None:
                             with ui.dialog() as dialog, ui.card().classes("p-4 w-[520px] max-w-full"):
                                 ui.label("Neues Projekt").classes("text-lg font-semibold")
                                 name_input = ui.input("Projektname").classes("w-full")
+                                price_input = ui.input(f"Preis ({settings.default_currency}, optional)").classes("w-full")
                                 created_on_input = ui.input("Erschaffen am (optional)").props("type=date clearable").classes("w-full")
                                 active_input = ui.checkbox("Aktiv", value=True)
 
@@ -1706,6 +1725,7 @@ def register_pages(services: ServiceContainer) -> None:
                                         project, created = masterdata.create_or_update_project(
                                             name=name,
                                             active=bool(active_input.value),
+                                            price_cents=_parse_money_to_cents(price_input.value),
                                             created_on=_parse_iso_date(created_on_input.value),
                                         )
                                         project_id = project.id
@@ -2320,6 +2340,7 @@ def register_pages(services: ServiceContainer) -> None:
                     with ui.dialog() as dialog, ui.card().classes("p-4 w-[560px] max-w-full"):
                         ui.label("Neues Projekt").classes("text-lg font-semibold")
                         name_input = ui.input("Projektname").classes("w-full")
+                        price_input = ui.input(f"Preis ({settings.default_currency}, optional)").classes("w-full")
                         created_on_input = ui.input("Erschaffen am (optional)").props("type=date clearable").classes("w-full")
                         active_input = ui.checkbox("Aktiv", value=True)
 
@@ -2332,6 +2353,7 @@ def register_pages(services: ServiceContainer) -> None:
                                 _, created = masterdata.create_or_update_project(
                                     name=name,
                                     active=bool(active_input.value),
+                                    price_cents=_parse_money_to_cents(price_input.value),
                                     created_on=_parse_iso_date(created_on_input.value),
                                 )
                                 ui.notify(
@@ -2417,6 +2439,7 @@ def register_pages(services: ServiceContainer) -> None:
                                 "id": project.id,
                                 "cover_url": to_files_url(project.cover_image_path),
                                 "name": project.name,
+                                "price": _format_cents(project.price_cents, settings.default_currency),
                                 "created_on": project.created_on.isoformat() if project.created_on else "-",
                                 "status": "aktiv" if project.active else "inaktiv",
                             }
@@ -2426,6 +2449,13 @@ def register_pages(services: ServiceContainer) -> None:
                         columns = [
                             {"name": "cover", "label": "Cover", "field": "cover", "align": "left"},
                             {"name": "name", "label": "Projekt", "field": "name", "align": "left", "sortable": True},
+                            {
+                                "name": "price",
+                                "label": f"Preis ({settings.default_currency})",
+                                "field": "price",
+                                "align": "right",
+                                "sortable": True,
+                            },
                             {
                                 "name": "created_on",
                                 "label": "Erschaffen am",
@@ -2556,6 +2586,12 @@ def register_pages(services: ServiceContainer) -> None:
 
                     with ui.column().classes("bm-detail-form gap-3"):
                         name_input = ui.input("Projektname", value=project.name).classes("w-full")
+                        price_input = ui.input(
+                            f"Preis ({settings.default_currency}, optional)",
+                            value=""
+                            if project.price_cents is None
+                            else f"{(Decimal(project.price_cents) / Decimal('100')):.2f}".replace(".", ","),
+                        ).classes("w-full")
                         created_on_input = ui.input(
                             "Erschaffen am (optional)",
                             value=project.created_on.isoformat() if project.created_on else "",
@@ -2580,6 +2616,7 @@ def register_pages(services: ServiceContainer) -> None:
                                     project_id=pid,
                                     name=name,
                                     active=bool(active_input.value),
+                                    price_cents=_parse_money_to_cents(price_input.value),
                                     created_on=_parse_iso_date(created_on_input.value),
                                 )
                                 ui.notify("Projekt gespeichert", type="positive")

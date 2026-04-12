@@ -211,6 +211,11 @@ def _apply_additive_migrations(session: Session) -> None:
         session.exec(text(f"ALTER TABLE cost_area ADD COLUMN icon TEXT DEFAULT '{DEFAULT_COST_AREA_ICON}'"))
         session.commit()
 
+    project_columns = {str(row[1]).strip().casefold() for row in session.exec(text("PRAGMA table_info(project)")).all()}
+    if "price_cents" not in project_columns:
+        session.exec(text("ALTER TABLE project ADD COLUMN price_cents INTEGER"))
+        session.commit()
+
     cost_subcategory_columns = {
         str(row[1]).strip().casefold() for row in session.exec(text("PRAGMA table_info(cost_subcategory)")).all()
     }

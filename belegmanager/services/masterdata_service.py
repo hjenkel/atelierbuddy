@@ -77,6 +77,7 @@ class MasterDataService:
         *,
         name: str,
         active: bool,
+        price_cents: int | None,
         created_on: date | None,
     ) -> tuple[Project, bool]:
         normalized_name = self._normalize_name(name, label="Projektname")
@@ -84,6 +85,7 @@ class MasterDataService:
             existing = session.exec(select(Project).where(func.lower(Project.name) == normalized_name.casefold())).first()
             if existing:
                 existing.active = bool(active)
+                existing.price_cents = price_cents
                 existing.created_on = created_on
                 session.add(existing)
                 session.commit()
@@ -94,6 +96,7 @@ class MasterDataService:
                 name=normalized_name,
                 color="#5c30ff",
                 active=bool(active),
+                price_cents=price_cents,
                 created_on=created_on,
             )
             session.add(project)
@@ -107,6 +110,7 @@ class MasterDataService:
         project_id: int,
         name: str,
         active: bool,
+        price_cents: int | None,
         created_on: date | None,
     ) -> Project:
         normalized_name = self._normalize_name(name, label="Projektname")
@@ -124,6 +128,7 @@ class MasterDataService:
                 raise ValueError("Projektname existiert bereits")
             current.name = normalized_name
             current.active = bool(active)
+            current.price_cents = price_cents
             current.created_on = created_on
             session.add(current)
             session.commit()
@@ -143,14 +148,24 @@ class MasterDataService:
 
     def delete_project(self, *, project_id: int) -> str | None:
         with Session(self._engine) as session:
-            session.exec(delete(CostAllocation).where(CostAllocation.project_id == project_id))
             project = session.get(Project, project_id)
             if not project:
                 raise ValueError("Projekt nicht gefunden")
+            if self._is_project_used(session, project_id):
+                raise ValueError(
+                    "Projekt ist bereits zugeordnet und kann nicht gelöscht werden. "
+                    "Bitte entferne zuerst alle Zuordnungen manuell."
+                )
             old_cover_path = project.cover_image_path
             session.delete(project)
             session.commit()
             return old_cover_path
+
+    def _is_project_used(self, session: Session, project_id: int) -> bool:
+        existing_allocation = session.exec(
+            select(CostAllocation.id).where(CostAllocation.project_id == project_id).limit(1)
+        ).first()
+        return existing_allocation is not None
 
     def create_or_update_cost_type(self, *, name: str, icon: str) -> tuple[CostType, bool]:
         normalized_name = self._normalize_name(name, label="Name")
