@@ -87,6 +87,35 @@ class Supplier(SQLModel, table=True):
     receipts: List["Receipt"] = Relationship(back_populates="supplier")
 
 
+class ContactCategory(SQLModel, table=True):
+    __tablename__ = "contact_category"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    name: str = Field(index=True, unique=True)
+    icon: str = Field(default="badge")
+    contacts: List["Contact"] = Relationship(back_populates="contact_category")
+
+
+class Contact(SQLModel, table=True):
+    __tablename__ = "contact"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    given_name: Optional[str] = Field(default=None, index=True)
+    family_name: Optional[str] = Field(default=None, index=True)
+    organisation: Optional[str] = Field(default=None, index=True)
+    email: Optional[str] = Field(default=None, index=True)
+    phone: Optional[str] = Field(default=None)
+    mobile: Optional[str] = Field(default=None)
+    primary_link: Optional[str] = Field(default=None)
+    city: Optional[str] = Field(default=None, index=True)
+    notes: Optional[str] = Field(default=None)
+    contact_category_id: int = Field(foreign_key="contact_category.id", index=True)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), index=True)
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+    contact_category: ContactCategory = Relationship(back_populates="contacts")
+
+
 class Project(SQLModel, table=True):
     __tablename__ = "project"
 

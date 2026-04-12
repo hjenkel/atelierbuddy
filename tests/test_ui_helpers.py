@@ -1,4 +1,5 @@
-from belegmanager.ui.pages import _extract_row_id
+from belegmanager.models import Contact
+from belegmanager.ui.pages import _contact_display_name_from_values, _contact_sort_key, _extract_row_id
 
 
 def test_extract_row_id_accepts_int_and_numeric_str() -> None:
@@ -32,3 +33,17 @@ def test_extract_row_id_returns_none_for_invalid_payload() -> None:
     assert _extract_row_id({"row": {"id": "abc"}}) is None
     assert _extract_row_id({"row": {}}) is None
     assert _extract_row_id([{"detail": 1, "button": 0}, {"supplier": "X"}, 0]) is None
+
+
+def test_contact_display_name_from_values_joins_present_parts() -> None:
+    assert _contact_display_name_from_values("Ada", "Lovelace") == "Ada Lovelace"
+    assert _contact_display_name_from_values("Ada", "") == "Ada"
+    assert _contact_display_name_from_values("", "Lovelace") == "Lovelace"
+
+
+def test_contact_sort_key_prefers_family_name_then_given_name() -> None:
+    primary = Contact(given_name="Mila", family_name="Stern", contact_category_id=1)
+    fallback = Contact(given_name="Alex", family_name=None, contact_category_id=1)
+
+    assert _contact_sort_key(primary) == ("stern", "mila", "")
+    assert _contact_sort_key(fallback) == ("alex", "", "")

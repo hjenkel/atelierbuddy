@@ -11,18 +11,21 @@ from pathlib import Path
 from typing import Any, Callable
 
 from nicegui import events, ui
-from sqlalchemy import or_
+from sqlalchemy import func, or_
 from sqlalchemy.orm import selectinload
 from sqlmodel import Session, select
 
 from ..app_state import ServiceContainer
 from ..config import settings
 from ..constants import (
+    CONTACT_CATEGORY_ICON_OPTIONS,
     COST_TYPE_ICON_OPTIONS,
+    DEFAULT_CONTACT_CATEGORY_ICON,
+    DEFAULT_CONTACT_CATEGORY_NAME,
     DEFAULT_COST_TYPE_ICON,
 )
 from ..db import engine
-from ..models import CostAllocation, CostSubcategory, CostType, Project, Receipt, Supplier
+from ..models import Contact, ContactCategory, CostAllocation, CostSubcategory, CostType, Project, Receipt, Supplier
 from ..schemas import AllocationInput
 from ..utils.storage import is_supported_filename, save_uploaded_work_cover, safe_delete_file, to_files_url
 
@@ -39,6 +42,7 @@ _NAV_CONFIG: list[dict[str, Any]] = [
     {"type": "item", "path": "/", "label": "Dashboard", "icon": "dashboard"},
     {"type": "item", "path": "/belege", "label": "Belege", "icon": "description"},
     {"type": "item", "path": "/projekte", "label": "Projekte", "icon": "palette"},
+    {"type": "item", "path": "/kontakte", "label": "Kontakte", "icon": "contacts"},
     {
         "type": "group",
         "key": "management",
@@ -46,6 +50,7 @@ _NAV_CONFIG: list[dict[str, Any]] = [
         "icon": "admin_panel_settings",
         "items": [
             {"path": "/lieferanten", "label": "Anbieter", "icon": "local_shipping"},
+            {"path": "/kontaktkategorien", "label": "Kontaktkategorien", "icon": "badge"},
             {"path": "/kategorien", "label": "Kostenkategorien", "icon": "category"},
         ],
     },
@@ -71,11 +76,22 @@ _HELP_CONTENT_BY_PATH: dict[str, dict[str, str]] = {
         "konkrete Vorhaben mit klarem Bezug. Wenn kein Projekt gewählt wird, läuft die "
         "Zuordnung automatisch als allgemeine Ausgabe.",
     },
+    "/kontakte": {
+        "title": "Hilfe · Kontakte",
+        "body": "Hier pflegst du Menschen, mit denen du arbeitest oder arbeiten möchtest. "
+        "Die Kontaktverwaltung bleibt bewusst schlank und hilft dir beim schnellen Wiederfinden "
+        "von Ansprechpartnern ohne CRM-Überbau.",
+    },
     "/lieferanten": {
         "title": "Hilfe · Anbieter",
         "body": "Hier sammelst du Firmen, Shops, Dienstleister und Vermieter, von denen deine "
         "Belege kommen. Das spart Tipparbeit und sorgt dafür, dass wiederkehrende Angaben "
         "nicht jedes Mal neu zusammengesucht werden müssen.",
+    },
+    "/kontaktkategorien": {
+        "title": "Hilfe · Kontaktkategorien",
+        "body": "Hier ordnest du Kontakte grob ein, zum Beispiel als Interessent, Veranstalter "
+        "oder Presse. Die Kategorien bleiben absichtlich einfach und ohne Unterkategorien.",
     },
     "/kategorien": {
         "title": "Hilfe · Kostenkategorien",
@@ -142,6 +158,24 @@ def _human_size(size_bytes: int) -> str:
     if size_bytes < 1024 * 1024:
         return f"{size_bytes / 1024:.1f} KB"
     return f"{size_bytes / (1024 * 1024):.1f} MB"
+
+
+def _contact_display_name_from_values(given_name: str | None, family_name: str | None) -> str:
+    parts = [part.strip() for part in (given_name, family_name) if (part or "").strip()]
+    return " ".join(parts) if parts else "-"
+
+
+def _contact_display_name(contact: Contact) -> str:
+    return _contact_display_name_from_values(contact.given_name, contact.family_name)
+
+
+def _contact_sort_key(contact: Contact) -> tuple[str, str, str]:
+    family_name = (contact.family_name or "").strip().casefold()
+    given_name = (contact.given_name or "").strip().casefold()
+    organisation = (contact.organisation or "").strip().casefold()
+    primary = family_name or given_name
+    secondary = given_name if family_name else ""
+    return (primary, secondary, organisation)
 
 
 def _parse_money_to_cents(
@@ -629,6 +663,12 @@ def register_pages(services: ServiceContainer) -> None:
                 stmt = stmt.where(Supplier.active.is_(True))
             suppliers = list(session.exec(stmt).all())
         return {supplier.id: supplier.name for supplier in suppliers if supplier.id is not None}
+
+    def contact_category_options() -> dict[int, str]:
+        with Session(engine) as session:
+            stmt = select(ContactCategory).order_by(ContactCategory.name)
+            categories = list(session.exec(stmt).all())
+        return {item.id: item.name for item in categories if item.id is not None}
 
     def missing_required_fields(receipt: Receipt) -> list[str]:
         missing: list[str] = []
@@ -2637,6 +2677,460 @@ def register_pages(services: ServiceContainer) -> None:
                                 ui.navigate.to("/projekte")
                             except Exception as exc:
                                 _notify_error("Projekt konnte nicht gelöscht werden", exc)
+
+    @ui.page("/kontakte")
+    def contacts_page() -> None:
+        with _shell("/kontakte", "Kontakte"):
+            with ui.card().classes("bm-card p-4 w-full"):
+                with ui.row().classes("w-full items-center justify-between gap-3 wrap"):
+                    ui.label("Kontakte verwalten").classes("text-lg font-semibold")
+                    ui.button("Kontakt anlegen", icon="add", on_click=lambda: open_contact_dialog()).props("color=primary")
+
+                with ui.row().classes("w-full items-end gap-2 wrap"):
+                    search_input = ui.input("Suche").props("clearable").classes("grow bm-filter-field")
+                    category_filter = ui.select(
+                        {"__all__": "Alle Kategorien"},
+                        value="__all__",
+                        label="Kategorie",
+                    ).classes("w-64 bm-filter-field")
+
+                contacts_column = ui.column().classes("w-full gap-2")
+
+                def refresh_category_filter_options() -> None:
+                    current_value = str(category_filter.value or "__all__")
+                    options: dict[str, str] = {"__all__": "Alle Kategorien"}
+                    for category_id, label in contact_category_options().items():
+                        options[str(category_id)] = label
+                    if current_value not in options:
+                        current_value = "__all__"
+                    category_filter.set_options(options, value=current_value)
+
+                def open_contact_dialog(contact_id: int | None = None) -> None:
+                    current_contact: Contact | None = None
+                    if contact_id is not None:
+                        with Session(engine) as session:
+                            current_contact = session.get(Contact, contact_id)
+                            if not current_contact:
+                                ui.notify("Kontakt nicht gefunden", type="negative")
+                                return
+
+                    category_options_map = contact_category_options()
+                    if not category_options_map:
+                        ui.notify("Bitte zuerst mindestens eine Kontaktkategorie anlegen", type="warning")
+                        return
+
+                    default_category_id = next(
+                        (
+                            category_id
+                            for category_id, label in category_options_map.items()
+                            if label == DEFAULT_CONTACT_CATEGORY_NAME
+                        ),
+                        next(iter(category_options_map)),
+                    )
+                    selected_category_id = (
+                        current_contact.contact_category_id if current_contact is not None else default_category_id
+                    )
+
+                    with ui.dialog() as dialog, ui.card().classes("p-4 w-[760px] max-w-full"):
+                        ui.label("Kontakt bearbeiten" if current_contact else "Neuer Kontakt").classes(
+                            "text-lg font-semibold"
+                        )
+                        with ui.row().classes("w-full gap-3 wrap"):
+                            given_name_input = ui.input(
+                                "Vorname",
+                                value="" if current_contact is None else (current_contact.given_name or ""),
+                            ).classes("flex-1 min-w-[220px]")
+                            family_name_input = ui.input(
+                                "Nachname",
+                                value="" if current_contact is None else (current_contact.family_name or ""),
+                            ).classes("flex-1 min-w-[220px]")
+                        with ui.row().classes("w-full gap-3 wrap"):
+                            organisation_input = ui.input(
+                                "Organisation",
+                                value="" if current_contact is None else (current_contact.organisation or ""),
+                            ).classes("flex-1 min-w-[220px]")
+                            category_input = ui.select(
+                                category_options_map,
+                                value=selected_category_id,
+                                label="Kategorie",
+                            ).classes("flex-1 min-w-[220px]")
+                        with ui.row().classes("w-full gap-3 wrap"):
+                            email_input = ui.input(
+                                "E-Mail",
+                                value="" if current_contact is None else (current_contact.email or ""),
+                            ).classes("flex-1 min-w-[220px]")
+                            city_input = ui.input(
+                                "Ort",
+                                value="" if current_contact is None else (current_contact.city or ""),
+                            ).classes("flex-1 min-w-[220px]")
+                        with ui.row().classes("w-full gap-3 wrap"):
+                            phone_input = ui.input(
+                                "Telefon",
+                                value="" if current_contact is None else (current_contact.phone or ""),
+                            ).classes("flex-1 min-w-[220px]")
+                            mobile_input = ui.input(
+                                "Mobil",
+                                value="" if current_contact is None else (current_contact.mobile or ""),
+                            ).classes("flex-1 min-w-[220px]")
+                        primary_link_input = ui.input(
+                            "Link",
+                            value="" if current_contact is None else (current_contact.primary_link or ""),
+                        ).classes("w-full")
+                        notes_input = ui.textarea(
+                            "Notiz",
+                            value="" if current_contact is None else (current_contact.notes or ""),
+                        ).classes("w-full")
+
+                        def save_contact() -> None:
+                            category_id = category_input.value
+                            if not isinstance(category_id, int):
+                                ui.notify("Kontaktkategorie fehlt", type="negative")
+                                return
+                            try:
+                                if current_contact is None:
+                                    masterdata.create_contact(
+                                        given_name=given_name_input.value,
+                                        family_name=family_name_input.value,
+                                        organisation=organisation_input.value,
+                                        email=email_input.value,
+                                        phone=phone_input.value,
+                                        mobile=mobile_input.value,
+                                        primary_link=primary_link_input.value,
+                                        city=city_input.value,
+                                        notes=notes_input.value,
+                                        contact_category_id=category_id,
+                                    )
+                                    ui.notify("Kontakt angelegt", type="positive")
+                                else:
+                                    masterdata.update_contact(
+                                        contact_id=contact_id or -1,
+                                        given_name=given_name_input.value,
+                                        family_name=family_name_input.value,
+                                        organisation=organisation_input.value,
+                                        email=email_input.value,
+                                        phone=phone_input.value,
+                                        mobile=mobile_input.value,
+                                        primary_link=primary_link_input.value,
+                                        city=city_input.value,
+                                        notes=notes_input.value,
+                                        contact_category_id=category_id,
+                                    )
+                                    ui.notify("Kontakt gespeichert", type="positive")
+                                dialog.close()
+                                refresh_category_filter_options()
+                                render_contacts()
+                            except Exception as exc:
+                                _notify_error("Kontakt konnte nicht gespeichert werden", exc)
+
+                        with ui.row().classes("w-full justify-end gap-2"):
+                            ui.button("Abbrechen", on_click=dialog.close).props("flat")
+                            ui.button("Speichern", on_click=save_contact).props("color=primary")
+                    dialog.open()
+
+                def delete_contact(contact_id: int) -> None:
+                    with ui.dialog() as dialog, ui.card().classes("p-4 w-[480px] max-w-full"):
+                        ui.label("Kontakt endgültig löschen?").classes("text-lg font-semibold")
+                        ui.label("Dieser Vorgang kann nicht rückgängig gemacht werden.").classes("text-sm text-slate-600")
+
+                        def confirm_delete() -> None:
+                            try:
+                                masterdata.delete_contact(contact_id=contact_id)
+                                ui.notify("Kontakt gelöscht", type="positive")
+                                dialog.close()
+                                render_contacts()
+                            except Exception as exc:
+                                _notify_error("Kontakt konnte nicht gelöscht werden", exc)
+
+                        with ui.row().classes("w-full justify-end gap-2"):
+                            ui.button("Abbrechen", on_click=dialog.close).props("flat")
+                            ui.button("Endgültig löschen", on_click=confirm_delete).props("color=negative")
+                    dialog.open()
+
+                def render_contacts() -> None:
+                    selected_category = str(category_filter.value or "__all__")
+                    search_value = (search_input.value or "").strip().casefold()
+                    with Session(engine) as session:
+                        stmt = select(Contact).options(selectinload(Contact.contact_category))
+                        if selected_category != "__all__":
+                            try:
+                                stmt = stmt.where(Contact.contact_category_id == int(selected_category))
+                            except ValueError:
+                                pass
+                        if search_value:
+                            like_value = f"%{search_value}%"
+                            stmt = stmt.where(
+                                or_(
+                                    func.lower(func.coalesce(Contact.given_name, "")).like(like_value),
+                                    func.lower(func.coalesce(Contact.family_name, "")).like(like_value),
+                                    func.lower(func.coalesce(Contact.organisation, "")).like(like_value),
+                                    func.lower(func.coalesce(Contact.email, "")).like(like_value),
+                                    func.lower(func.coalesce(Contact.phone, "")).like(like_value),
+                                    func.lower(func.coalesce(Contact.mobile, "")).like(like_value),
+                                    func.lower(func.coalesce(Contact.city, "")).like(like_value),
+                                    func.lower(func.coalesce(Contact.notes, "")).like(like_value),
+                                )
+                            )
+                        contacts = list(session.exec(stmt).all())
+
+                    contacts.sort(key=_contact_sort_key)
+                    contacts_column.clear()
+                    with contacts_column:
+                        if not contacts:
+                            ui.label("Noch keine Kontakte vorhanden.")
+                            return
+
+                        rows = []
+                        for contact in contacts:
+                            if contact.id is None:
+                                continue
+                            category_name = "-"
+                            if contact.contact_category:
+                                category_name = contact.contact_category.name
+                            phone_parts = [part for part in (contact.phone, contact.mobile) if part]
+                            rows.append(
+                                {
+                                    "id": contact.id,
+                                    "name": _contact_display_name(contact),
+                                    "category": category_name,
+                                    "organisation": contact.organisation or "-",
+                                    "reachability": contact.email or (" / ".join(phone_parts) if phone_parts else "-"),
+                                }
+                            )
+
+                        columns = [
+                            {"name": "name", "label": "Kontakt", "field": "name", "align": "left", "sortable": True},
+                            {"name": "category", "label": "Kategorie", "field": "category", "align": "left"},
+                            {"name": "organisation", "label": "Organisation", "field": "organisation", "align": "left"},
+                            {"name": "reachability", "label": "Kontaktweg", "field": "reachability", "align": "left"},
+                            {"name": "actions", "label": "Aktionen", "field": "actions", "align": "right"},
+                        ]
+                        table = _erp_table(columns=columns, rows=rows, row_key="id", rows_per_page=20)
+                        table.add_slot(
+                            "body-cell-actions",
+                            """
+                            <q-td :props="props" class="text-right">
+                              <q-btn flat round dense icon="more_vert" @click.stop>
+                                <q-menu auto-close>
+                                  <q-list dense style="min-width: 220px">
+                                    <q-item clickable @click="$parent.$emit('edit_action', props.row)">
+                                      <q-item-section avatar><q-icon name="edit" /></q-item-section>
+                                      <q-item-section><q-item-label>Bearbeiten</q-item-label></q-item-section>
+                                    </q-item>
+                                    <q-item clickable @click="$parent.$emit('delete_action', props.row)">
+                                      <q-item-section avatar><q-icon name="delete" color="negative" /></q-item-section>
+                                      <q-item-section><q-item-label>Kontakt löschen</q-item-label></q-item-section>
+                                    </q-item>
+                                  </q-list>
+                                </q-menu>
+                              </q-btn>
+                            </q-td>
+                            """,
+                        )
+                        table.on("rowClick", lambda e: open_contact_dialog(_extract_row_id(e) or -1))
+                        table.on("edit_action", lambda e: open_contact_dialog(_extract_row_id(e) or -1))
+                        table.on("delete_action", lambda e: delete_contact(_extract_row_id(e) or -1))
+
+                search_input.on_value_change(lambda _: render_contacts())
+                category_filter.on_value_change(lambda _: render_contacts())
+                refresh_category_filter_options()
+                render_contacts()
+
+    @ui.page("/kontaktkategorien")
+    def contact_categories_page() -> None:
+        icon_option_map = {icon: _icon_option_html(label, icon) for label, icon in CONTACT_CATEGORY_ICON_OPTIONS}
+
+        with _shell("/kontaktkategorien", "Kontaktkategorien"):
+            with ui.card().classes("bm-card p-4 w-full"):
+                def open_create_contact_category_dialog() -> None:
+                    with ui.dialog() as dialog, ui.card().classes("p-4 w-[560px] max-w-full"):
+                        ui.label("Neue Kontaktkategorie").classes("text-lg font-semibold")
+                        name_input = ui.input("Name").classes("w-full")
+                        icon_select = ui.select(
+                            icon_option_map,
+                            value=DEFAULT_CONTACT_CATEGORY_ICON,
+                            label="Symbol",
+                        ).classes("w-full")
+                        icon_select.props("options-html display-value-html")
+
+                        def add_category() -> None:
+                            name = (name_input.value or "").strip()
+                            if not name:
+                                ui.notify("Name fehlt", type="negative")
+                                return
+                            try:
+                                _, created = masterdata.create_or_update_contact_category(
+                                    name=name,
+                                    icon=str(icon_select.value or DEFAULT_CONTACT_CATEGORY_ICON),
+                                )
+                                ui.notify(
+                                    "Kontaktkategorie angelegt"
+                                    if created
+                                    else "Kontaktkategorie existierte bereits und wurde aktualisiert",
+                                    type="positive",
+                                )
+                                dialog.close()
+                                render_contact_categories()
+                            except Exception as exc:
+                                _notify_error("Kontaktkategorie konnte nicht angelegt werden", exc)
+
+                        with ui.row().classes("w-full justify-end gap-2"):
+                            ui.button("Abbrechen", on_click=dialog.close).props("flat")
+                            ui.button("Anlegen", on_click=add_category).props("color=primary")
+                    dialog.open()
+
+                with ui.row().classes("w-full items-center justify-between gap-3 wrap"):
+                    ui.label("Kontaktkategorien verwalten").classes("text-lg font-semibold")
+                    ui.button(
+                        "Kontaktkategorie anlegen",
+                        icon="add",
+                        on_click=open_create_contact_category_dialog,
+                    ).props("color=primary")
+
+                category_column = ui.column().classes("w-full gap-2")
+
+                def open_edit_contact_category_dialog(category_id: int) -> None:
+                    with Session(engine) as session:
+                        category = session.get(ContactCategory, category_id)
+                        if not category:
+                            ui.notify("Kontaktkategorie nicht gefunden", type="negative")
+                            return
+                        current_name = category.name
+                        current_icon = category.icon or DEFAULT_CONTACT_CATEGORY_ICON
+
+                    with ui.dialog() as dialog, ui.card().classes("p-4 w-[560px] max-w-full"):
+                        ui.label("Kontaktkategorie bearbeiten").classes("text-lg font-semibold")
+                        name_edit = ui.input("Name", value=current_name).classes("w-full")
+                        icon_edit = ui.select(
+                            icon_option_map,
+                            value=current_icon,
+                            label="Symbol",
+                        ).classes("w-full")
+                        icon_edit.props("options-html display-value-html")
+
+                        def confirm_delete() -> None:
+                            with ui.dialog() as confirm_dialog, ui.card().classes("p-4 w-[500px] max-w-full"):
+                                ui.label("Kontaktkategorie endgültig löschen?").classes("text-lg font-semibold")
+                                ui.label(
+                                    "Dieser Vorgang kann nicht rückgängig gemacht werden. "
+                                    "Wenn die Kategorie noch verwendet wird, wird das Löschen blockiert."
+                                ).classes("text-sm text-slate-600")
+
+                                def run_delete() -> None:
+                                    try:
+                                        masterdata.delete_contact_category(category_id=category_id)
+                                        ui.notify("Kontaktkategorie gelöscht", type="positive")
+                                        confirm_dialog.close()
+                                        dialog.close()
+                                        render_contact_categories()
+                                    except Exception as exc:
+                                        _notify_error("Kontaktkategorie konnte nicht gelöscht werden", exc)
+
+                                with ui.row().classes("w-full justify-end gap-2"):
+                                    ui.button("Abbrechen", on_click=confirm_dialog.close).props("flat")
+                                    ui.button("Endgültig löschen", on_click=run_delete).props("color=negative")
+                            confirm_dialog.open()
+
+                        def save_category() -> None:
+                            name = (name_edit.value or "").strip()
+                            if not name:
+                                ui.notify("Name fehlt", type="negative")
+                                return
+                            try:
+                                masterdata.update_contact_category(
+                                    category_id=category_id,
+                                    name=name,
+                                    icon=str(icon_edit.value or DEFAULT_CONTACT_CATEGORY_ICON),
+                                )
+                                ui.notify("Kontaktkategorie gespeichert", type="positive")
+                                dialog.close()
+                                render_contact_categories()
+                            except Exception as exc:
+                                _notify_error("Speichern fehlgeschlagen", exc)
+
+                        with ui.row().classes("w-full justify-between gap-2"):
+                            ui.button("Löschen", on_click=confirm_delete).props("flat color=negative")
+                            ui.button("Abbrechen", on_click=dialog.close).props("flat")
+                            ui.button("Speichern", on_click=save_category).props("color=primary")
+                    dialog.open()
+
+                def render_contact_categories() -> None:
+                    with Session(engine) as session:
+                        categories = list(session.exec(select(ContactCategory).order_by(ContactCategory.name)).all())
+                        category_ids = [item.id for item in categories if item.id is not None]
+                        used_category_ids = {
+                            item
+                            for item in session.exec(
+                                select(Contact.contact_category_id).where(Contact.contact_category_id.in_(category_ids or [-1]))
+                            ).all()
+                            if isinstance(item, int)
+                        }
+
+                    category_column.clear()
+                    with category_column:
+                        if not categories:
+                            ui.label("Noch keine Kontaktkategorien vorhanden.")
+                            return
+
+                        rows = [
+                            {
+                                "id": category.id,
+                                "name": category.name,
+                                "icon": category.icon or DEFAULT_CONTACT_CATEGORY_ICON,
+                                "used": (category.id in used_category_ids) if category.id is not None else False,
+                            }
+                            for category in categories
+                            if category.id is not None
+                        ]
+                        columns = [
+                            {"name": "icon", "label": "Symbol", "field": "icon", "align": "left"},
+                            {"name": "name", "label": "Kontaktkategorie", "field": "name", "align": "left", "sortable": True},
+                            {"name": "used", "label": "Verwendet", "field": "used", "align": "left"},
+                            {"name": "actions", "label": "Aktionen", "field": "actions", "align": "right"},
+                        ]
+                        table = _erp_table(columns=columns, rows=rows, row_key="id", rows_per_page=20)
+                        table.add_slot(
+                            "body-cell-icon",
+                            """
+                            <q-td :props="props">
+                              <q-icon :name="props.row.icon" size="20px" />
+                            </q-td>
+                            """,
+                        )
+                        table.add_slot(
+                            "body-cell-used",
+                            """
+                            <q-td :props="props">
+                              <q-badge :color="props.row.used ? 'warning' : 'positive'" outline>
+                                {{ props.row.used ? 'ja' : 'nein' }}
+                              </q-badge>
+                            </q-td>
+                            """,
+                        )
+                        table.add_slot(
+                            "body-cell-actions",
+                            """
+                            <q-td :props="props" class="text-right">
+                              <q-btn flat round dense icon="more_vert" @click.stop>
+                                <q-menu auto-close>
+                                  <q-list dense style="min-width: 240px">
+                                    <q-item clickable @click="$parent.$emit('edit_action', props.row)">
+                                      <q-item-section avatar><q-icon name="edit" /></q-item-section>
+                                      <q-item-section><q-item-label>Bearbeiten</q-item-label></q-item-section>
+                                    </q-item>
+                                    <q-item clickable @click="$parent.$emit('delete_action', props.row)">
+                                      <q-item-section avatar><q-icon name="delete" color="negative" /></q-item-section>
+                                      <q-item-section><q-item-label>Löschen</q-item-label></q-item-section>
+                                    </q-item>
+                                  </q-list>
+                                </q-menu>
+                              </q-btn>
+                            </q-td>
+                            """,
+                        )
+                        table.on("rowClick", lambda e: open_edit_contact_category_dialog(_extract_row_id(e) or -1))
+                        table.on("edit_action", lambda e: open_edit_contact_category_dialog(_extract_row_id(e) or -1))
+                        table.on("delete_action", lambda e: open_edit_contact_category_dialog(_extract_row_id(e) or -1))
+                render_contact_categories()
 
     @ui.page("/lieferanten")
     def suppliers_page() -> None:

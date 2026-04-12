@@ -8,6 +8,8 @@ from sqlmodel import Session, SQLModel, create_engine, select
 
 from .config import settings
 from .constants import (
+    DEFAULT_CONTACT_CATEGORIES,
+    DEFAULT_CONTACT_CATEGORY_ICON,
     DEFAULT_COST_AREA_ICON,
     DEFAULT_COST_AREAS,
     DEFAULT_COST_TYPES,
@@ -15,7 +17,7 @@ from .constants import (
     default_subcategory_name_for_cost_type,
 )
 from .fts import init_fts
-from .models import CostAllocation, CostArea, CostSubcategory, CostType
+from .models import Contact, ContactCategory, CostAllocation, CostArea, CostSubcategory, CostType
 
 settings.ensure_dirs()
 SCHEMA_VERSION = "v1.5"
@@ -77,6 +79,18 @@ def _write_schema_marker() -> None:
 
 
 def _seed_defaults(session: Session) -> None:
+    existing_contact_categories = {
+        item.name.casefold(): item for item in session.exec(select(ContactCategory).order_by(ContactCategory.name)).all()
+    }
+    for name, icon in DEFAULT_CONTACT_CATEGORIES:
+        existing_item = existing_contact_categories.get(name.casefold())
+        if existing_item is None:
+            session.add(ContactCategory(name=name, icon=icon))
+            continue
+        if (existing_item.icon or "").strip() in {"", "label"}:
+            existing_item.icon = icon
+        session.add(existing_item)
+
     existing_cost_areas = {
         item.name.casefold(): item for item in session.exec(select(CostArea).order_by(CostArea.name)).all()
     }
@@ -183,6 +197,13 @@ def _seed_defaults(session: Session) -> None:
     session.exec(text("CREATE INDEX IF NOT EXISTS ix_cost_type_name ON cost_type (name)"))
     session.exec(text("CREATE INDEX IF NOT EXISTS ix_cost_subcategory_name ON cost_subcategory (name)"))
     session.exec(text("CREATE INDEX IF NOT EXISTS ix_cost_subcategory_cost_type ON cost_subcategory (cost_type_id)"))
+    session.exec(text("CREATE INDEX IF NOT EXISTS ix_contact_category_name ON contact_category (name)"))
+    session.exec(text("CREATE INDEX IF NOT EXISTS ix_contact_contact_category ON contact (contact_category_id)"))
+    session.exec(text("CREATE INDEX IF NOT EXISTS ix_contact_given_name ON contact (given_name)"))
+    session.exec(text("CREATE INDEX IF NOT EXISTS ix_contact_family_name ON contact (family_name)"))
+    session.exec(text("CREATE INDEX IF NOT EXISTS ix_contact_organisation ON contact (organisation)"))
+    session.exec(text("CREATE INDEX IF NOT EXISTS ix_contact_email ON contact (email)"))
+    session.exec(text("CREATE INDEX IF NOT EXISTS ix_contact_city ON contact (city)"))
     session.commit()
 
 
@@ -233,4 +254,28 @@ def _apply_additive_migrations(session: Session) -> None:
     }
     if "cost_subcategory_id" not in cost_allocation_columns:
         session.exec(text("ALTER TABLE cost_allocation ADD COLUMN cost_subcategory_id INTEGER"))
+        session.commit()
+
+    contact_category_columns = {
+        str(row[1]).strip().casefold() for row in session.exec(text("PRAGMA table_info(contact_category)")).all()
+    }
+    if contact_category_columns and "icon" not in contact_category_columns:
+        session.exec(text(f"ALTER TABLE contact_category ADD COLUMN icon TEXT DEFAULT '{DEFAULT_CONTACT_CATEGORY_ICON}'"))
+        session.commit()
+    if contact_category_columns:
+        if "icon" in contact_category_columns:
+            session.exec(
+                text(
+                    f"UPDATE contact_category SET icon = '{DEFAULT_CONTACT_CATEGORY_ICON}' "
+                    "WHERE icon IS NULL OR TRIM(icon) = ''"
+                )
+            )
+            session.commit()
+
+    contact_columns = {str(row[1]).strip().casefold() for row in session.exec(text("PRAGMA table_info(contact)")).all()}
+    if contact_columns and "created_at" not in contact_columns:
+        session.exec(text("ALTER TABLE contact ADD COLUMN created_at TIMESTAMP"))
+        session.commit()
+    if contact_columns and "updated_at" not in contact_columns:
+        session.exec(text("ALTER TABLE contact ADD COLUMN updated_at TIMESTAMP"))
         session.commit()

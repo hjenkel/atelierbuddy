@@ -802,6 +802,20 @@ def apply_theme() -> None:
           background: var(--bm-surface);
         }
 
+        /* Filterfelder sollen nebeneinander dieselbe Außenhöhe haben, ohne Label/Wert zu quetschen. */
+        .bm-filter-field {
+          min-height: 52px;
+        }
+
+        .bm-filter-field .q-field__inner {
+          min-height: 52px;
+        }
+
+        .bm-filter-field .q-field__control {
+          min-height: 52px !important;
+          height: 52px !important;
+        }
+
         .bm-upload-zone {
           border: 2px dashed var(--bm-primary);
           border-radius: 8px;

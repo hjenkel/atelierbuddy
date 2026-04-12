@@ -42,6 +42,26 @@ DEFAULT_COST_TYPES: list[tuple[str, str]] = [
     ("Sonstiges", "category"),
 ]
 
+CONTACT_CATEGORY_ICON_OPTIONS: list[tuple[str, str]] = [
+    ("Interessent / Kunde", "handshake"),
+    ("Veranstalter", "event"),
+    ("Presse", "article"),
+    ("Förderung / Institution", "account_balance"),
+    ("Sonstiges", "badge"),
+]
+
+CONTACT_CATEGORY_ICONS: list[str] = [icon for _, icon in CONTACT_CATEGORY_ICON_OPTIONS]
+DEFAULT_CONTACT_CATEGORY_ICON: str = CONTACT_CATEGORY_ICON_OPTIONS[0][1]
+DEFAULT_CONTACT_CATEGORY_NAME: str = "Interessent / Kunde"
+
+DEFAULT_CONTACT_CATEGORIES: list[tuple[str, str]] = [
+    ("Interessent / Kunde", "handshake"),
+    ("Veranstalter", "event"),
+    ("Presse", "article"),
+    ("Förderung / Institution", "account_balance"),
+    ("Sonstiges", "badge"),
+]
+
 DEFAULT_COST_AREA_ICON: str = "widgets"
 DEFAULT_HIDDEN_COST_AREA_NAME: str = "Allgemeine Ausgabe"
 DEFAULT_SUBCATEGORY_NAME: str = "Allgemein"

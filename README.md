@@ -40,6 +40,7 @@ Wenn du Erfahrung mit Python, Buchhaltungslogik, Security oder UX hast:
 - Kostenzuordnung pro Beleg mit Kostenkategorie + Unterkategorie + optionalem Projekt
 - Wenn kein Projekt gewählt wird, erfolgt intern automatisch die Zuordnung zur Kostenstelle `Allgemeine Ausgabe`
 - Standardmodus mit 100%-Zuordnung und optionaler Split-Aufteilung
+- Schlanke Kontaktverwaltung mit pflegbaren Kontaktkategorien
 - Anbieter-Stammdaten und Anbieterzuordnung
 - Rechnungsbetrag mit Brutto/USt/Netto
 - Cover-Foto pro Projekt (optimiertes WebP)

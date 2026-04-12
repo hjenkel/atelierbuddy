@@ -7,12 +7,13 @@ from sqlmodel import Session, select
 
 from ..constants import DEFAULT_COST_TYPE_ICON, DEFAULT_SUBCATEGORY_NAME, default_subcategory_name_for_cost_type
 from ..db import engine
-from ..models import CostAllocation, CostSubcategory, CostType, Project, Receipt, Supplier
+from ..models import Contact, ContactCategory, CostAllocation, CostSubcategory, CostType, Project, Receipt, Supplier
 
 
 class MasterDataService:
     MIN_NAME_LENGTH = 2
     MAX_NAME_LENGTH = 120
+    MAX_CONTACT_FIELD_LENGTH = 255
 
     def __init__(self, db_engine=engine) -> None:
         self._engine = db_engine
@@ -22,6 +23,29 @@ class MasterDataService:
         if len(name) < self.MIN_NAME_LENGTH or len(name) > self.MAX_NAME_LENGTH:
             raise ValueError(f"{label} muss zwischen {self.MIN_NAME_LENGTH} und {self.MAX_NAME_LENGTH} Zeichen lang sein")
         return name
+
+    def _normalize_contact_name(self, value: str | None, *, label: str) -> str | None:
+        name = (value or "").strip()
+        if not name:
+            return None
+        if len(name) > self.MAX_NAME_LENGTH:
+            raise ValueError(f"{label} darf maximal {self.MAX_NAME_LENGTH} Zeichen lang sein")
+        return name
+
+    def _normalize_optional_text(self, value: str | None, *, label: str) -> str | None:
+        text = (value or "").strip()
+        if not text:
+            return None
+        if len(text) > self.MAX_CONTACT_FIELD_LENGTH:
+            raise ValueError(f"{label} darf maximal {self.MAX_CONTACT_FIELD_LENGTH} Zeichen lang sein")
+        return text
+
+    def _validate_contact_names(self, *, given_name: str | None, family_name: str | None) -> tuple[str | None, str | None]:
+        normalized_given_name = self._normalize_contact_name(given_name, label="Vorname")
+        normalized_family_name = self._normalize_contact_name(family_name, label="Nachname")
+        if not normalized_given_name and not normalized_family_name:
+            raise ValueError("Mindestens Vorname oder Nachname muss ausgefuellt sein")
+        return normalized_given_name, normalized_family_name
 
     def create_or_update_supplier(self, *, name: str, active: bool) -> tuple[Supplier, bool]:
         normalized_name = self._normalize_name(name, label="Anbietername")
@@ -70,6 +94,147 @@ class MasterDataService:
             if not supplier:
                 raise ValueError("Anbieter nicht gefunden")
             session.delete(supplier)
+            session.commit()
+
+    def create_contact(
+        self,
+        *,
+        given_name: str | None,
+        family_name: str | None,
+        organisation: str | None,
+        email: str | None,
+        phone: str | None,
+        mobile: str | None,
+        primary_link: str | None,
+        city: str | None,
+        notes: str | None,
+        contact_category_id: int,
+    ) -> Contact:
+        normalized_given_name, normalized_family_name = self._validate_contact_names(
+            given_name=given_name,
+            family_name=family_name,
+        )
+        with Session(self._engine) as session:
+            category = session.get(ContactCategory, contact_category_id)
+            if not category:
+                raise ValueError("Kontaktkategorie nicht gefunden")
+            contact = Contact(
+                given_name=normalized_given_name,
+                family_name=normalized_family_name,
+                organisation=self._normalize_optional_text(organisation, label="Organisation"),
+                email=self._normalize_optional_text(email, label="E-Mail"),
+                phone=self._normalize_optional_text(phone, label="Telefon"),
+                mobile=self._normalize_optional_text(mobile, label="Mobil"),
+                primary_link=self._normalize_optional_text(primary_link, label="Link"),
+                city=self._normalize_optional_text(city, label="Ort"),
+                notes=self._normalize_optional_text(notes, label="Notiz"),
+                contact_category_id=contact_category_id,
+            )
+            session.add(contact)
+            session.commit()
+            session.refresh(contact)
+            return contact
+
+    def update_contact(
+        self,
+        *,
+        contact_id: int,
+        given_name: str | None,
+        family_name: str | None,
+        organisation: str | None,
+        email: str | None,
+        phone: str | None,
+        mobile: str | None,
+        primary_link: str | None,
+        city: str | None,
+        notes: str | None,
+        contact_category_id: int,
+    ) -> Contact:
+        normalized_given_name, normalized_family_name = self._validate_contact_names(
+            given_name=given_name,
+            family_name=family_name,
+        )
+        with Session(self._engine) as session:
+            contact = session.get(Contact, contact_id)
+            if not contact:
+                raise ValueError("Kontakt nicht gefunden")
+            category = session.get(ContactCategory, contact_category_id)
+            if not category:
+                raise ValueError("Kontaktkategorie nicht gefunden")
+            contact.given_name = normalized_given_name
+            contact.family_name = normalized_family_name
+            contact.organisation = self._normalize_optional_text(organisation, label="Organisation")
+            contact.email = self._normalize_optional_text(email, label="E-Mail")
+            contact.phone = self._normalize_optional_text(phone, label="Telefon")
+            contact.mobile = self._normalize_optional_text(mobile, label="Mobil")
+            contact.primary_link = self._normalize_optional_text(primary_link, label="Link")
+            contact.city = self._normalize_optional_text(city, label="Ort")
+            contact.notes = self._normalize_optional_text(notes, label="Notiz")
+            contact.contact_category_id = contact_category_id
+            contact.updated_at = datetime.now(timezone.utc)
+            session.add(contact)
+            session.commit()
+            session.refresh(contact)
+            return contact
+
+    def delete_contact(self, *, contact_id: int) -> None:
+        with Session(self._engine) as session:
+            contact = session.get(Contact, contact_id)
+            if not contact:
+                raise ValueError("Kontakt nicht gefunden")
+            self._ensure_contact_can_be_deleted(session, contact_id)
+            session.delete(contact)
+            session.commit()
+
+    def create_or_update_contact_category(self, *, name: str, icon: str) -> tuple[ContactCategory, bool]:
+        normalized_name = self._normalize_name(name, label="Kontaktkategorie")
+        normalized_icon = (icon or "badge").strip() or "badge"
+        with Session(self._engine) as session:
+            existing = session.exec(
+                select(ContactCategory).where(func.lower(ContactCategory.name) == normalized_name.casefold())
+            ).first()
+            if existing:
+                existing.icon = normalized_icon
+                session.add(existing)
+                session.commit()
+                session.refresh(existing)
+                return existing, False
+
+            category = ContactCategory(name=normalized_name, icon=normalized_icon)
+            session.add(category)
+            session.commit()
+            session.refresh(category)
+            return category, True
+
+    def update_contact_category(self, *, category_id: int, name: str, icon: str) -> ContactCategory:
+        normalized_name = self._normalize_name(name, label="Kontaktkategorie")
+        normalized_icon = (icon or "badge").strip() or "badge"
+        with Session(self._engine) as session:
+            category = session.get(ContactCategory, category_id)
+            if not category:
+                raise ValueError("Kontaktkategorie nicht gefunden")
+            duplicate = session.exec(
+                select(ContactCategory).where(
+                    func.lower(ContactCategory.name) == normalized_name.casefold(),
+                    ContactCategory.id != category_id,
+                )
+            ).first()
+            if duplicate:
+                raise ValueError("Kontaktkategorie existiert bereits")
+            category.name = normalized_name
+            category.icon = normalized_icon
+            session.add(category)
+            session.commit()
+            session.refresh(category)
+            return category
+
+    def delete_contact_category(self, *, category_id: int) -> None:
+        with Session(self._engine) as session:
+            category = session.get(ContactCategory, category_id)
+            if not category:
+                raise ValueError("Kontaktkategorie nicht gefunden")
+            self._ensure_contact_category_can_be_deleted(session, category_id)
+            session.delete(category)
             session.commit()
 
     def create_or_update_project(
@@ -380,3 +545,13 @@ class MasterDataService:
     def _is_subcategory_used(self, session: Session, subcategory_id: int) -> bool:
         used = session.exec(select(CostAllocation.id).where(CostAllocation.cost_subcategory_id == subcategory_id)).first()
         return used is not None
+
+    def _ensure_contact_can_be_deleted(self, session: Session, contact_id: int) -> None:
+        # Future guard rail: when outgoing invoices reference contacts, block deletion here.
+        _ = session
+        _ = contact_id
+
+    def _ensure_contact_category_can_be_deleted(self, session: Session, category_id: int) -> None:
+        used_contact = session.exec(select(Contact.id).where(Contact.contact_category_id == category_id)).first()
+        if used_contact is not None:
+            raise ValueError("Kontaktkategorie wird noch verwendet und kann nicht gelöscht werden")

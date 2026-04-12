@@ -8,7 +8,7 @@ Die App nutzt SQLite mit SQLModel/SQLAlchemy.
 Hauptfokus liegt auf:
 - `receipt` als Beleg-Stammsatz,
 - `cost_allocation` als fachliche Zuordnungs-Wahrheit,
-- Stammdaten (`project`, `supplier`, `cost_type`, `cost_subcategory`),
+- Stammdaten (`project`, `supplier`, `contact`, `contact_category`, `cost_type`, `cost_subcategory`),
 - Auth-Basis (`app_user`, `auth_attempt`).
 
 Zusatz:
@@ -20,6 +20,7 @@ Zusatz:
 erDiagram
     RECEIPT ||--o{ COST_ALLOCATION : has
     COST_TYPE ||--o{ COST_SUBCATEGORY : has
+    CONTACT_CATEGORY ||--o{ CONTACT : groups
     COST_TYPE ||--o{ COST_ALLOCATION : classifies
     COST_SUBCATEGORY ||--o{ COST_ALLOCATION : refines
     PROJECT ||--o{ COST_ALLOCATION : targets
@@ -94,6 +95,28 @@ erDiagram
       string client_ip
       string user_agent
     }
+
+    CONTACT_CATEGORY {
+      int id PK
+      string name
+      string icon
+    }
+
+    CONTACT {
+      int id PK
+      string given_name
+      string family_name
+      string organisation
+      string email
+      string phone
+      string mobile
+      string primary_link
+      string city
+      string notes
+      int contact_category_id FK
+      datetime created_at
+      datetime updated_at
+    }
 ```
 
 ## Tabellen und fachliche Rolle
@@ -104,6 +127,8 @@ erDiagram
 - `project`: Projektstammdaten inkl. Aktiv-Status und optionalem `price_cents` zur Preisverwaltung.
 - `cost_area`: technische Zielstruktur; UI-seitig aktuell ausgeblendet, u. a. für Default-Fallback.
 - `supplier`: Anbieter/Lieferant.
+- `contact_category`: einfache Kontaktkategorie ohne Unterkategorien; Löschen wird blockiert, solange Kontakte zugeordnet sind.
+- `contact`: personenbasierter Kontakt mit genau einer Kategorie; aktuell ohne Soft-Delete oder Archivierung.
 - `import_batch`: Importlauf (Zählwerte und Zeiten).
 - `app_user`: lokaler Login-Benutzer (Argon2-Hash, Status, Lockout-Metadaten).
 - `auth_attempt`: Login-Versuchsprotokoll für Lockout/Monitoring.
@@ -124,6 +149,7 @@ Initialisierung in `db.init_db()`:
    - fügt fehlende Spalten idempotent hinzu (z. B. `receipt.document_type`, `receipt.notes`, `cost_type.active`, `project.price_cents`, ...).
 4. `init_fts(session)` für `receipt_fts`
 5. `_seed_defaults(session)`:
+   - Default-Kontaktkategorien
    - Default-Kostenkategorien und Default-Unterkategorien
    - technische Default-Kostenstelle `Allgemeine Ausgabe`
    - Indexe für wichtige Filter/Join-Felder
