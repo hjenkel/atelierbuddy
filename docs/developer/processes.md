@@ -37,7 +37,7 @@ Relevante ENV-Overrides:
 ## Flow 2: Beleg bearbeiten/speichern
 1. Belegdetailseite lädt Stammdaten + bestehende Zuordnungen.
 2. Beim Speichern:
-   - `ReceiptService.update_metadata(...)` speichert Kopf- und Betragsdaten.
+   - `ReceiptService.update_metadata(...)` speichert Kopf-, Notiz- und Betragsdaten.
    - `CostAllocationService.save_allocations(...)` ersetzt die Zuordnungszeilen transaktional.
 3. Harte Regeln:
    - Belegtyp/Vorzeichen konsistent (`invoice` >= 0, `credit_note` <= 0).

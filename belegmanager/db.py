@@ -198,6 +198,9 @@ def _apply_additive_migrations(session: Session) -> None:
         )
     )
     session.commit()
+    if "notes" not in receipt_columns:
+        session.exec(text("ALTER TABLE receipt ADD COLUMN notes TEXT"))
+        session.commit()
 
     cost_type_columns = {str(row[1]).strip().casefold() for row in session.exec(text("PRAGMA table_info(cost_type)")).all()}
     if "active" not in cost_type_columns:

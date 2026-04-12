@@ -66,3 +66,42 @@ def test_update_metadata_accepts_existing_supplier_id(monkeypatch: pytest.Monkey
         updated = session.get(Receipt, receipt.id)
         assert updated is not None
         assert updated.supplier_id == supplier.id
+
+
+def test_update_metadata_persists_optional_notes(monkeypatch: pytest.MonkeyPatch) -> None:
+    service, engine = _build_service(monkeypatch)
+    with Session(engine) as session:
+        receipt = Receipt(original_filename="beleg.pdf", archive_path="/tmp/beleg.pdf")
+        session.add(receipt)
+        session.commit()
+        session.refresh(receipt)
+
+    assert receipt.id is not None
+
+    service.update_metadata(
+        receipt_id=receipt.id,
+        doc_date=None,
+        amount_gross_cents=1000,
+        vat_rate_percent=19.0,
+        notes="  Material für Bühnenbild\nzweite Charge  ",
+        document_type="invoice",
+    )
+
+    with Session(engine) as session:
+        updated = session.get(Receipt, receipt.id)
+        assert updated is not None
+        assert updated.notes == "Material für Bühnenbild\nzweite Charge"
+
+    service.update_metadata(
+        receipt_id=receipt.id,
+        doc_date=None,
+        amount_gross_cents=1000,
+        vat_rate_percent=19.0,
+        notes="   ",
+        document_type="invoice",
+    )
+
+    with Session(engine) as session:
+        updated = session.get(Receipt, receipt.id)
+        assert updated is not None
+        assert updated.notes is None

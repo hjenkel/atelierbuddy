@@ -128,6 +128,7 @@ class Receipt(SQLModel, table=True):
     amount_gross_cents: Optional[int] = Field(default=None)
     vat_rate_percent: Optional[float] = Field(default=None)
     amount_net_cents: Optional[int] = Field(default=None)
+    notes: Optional[str] = Field(default=None)
     document_type: str = Field(default="invoice", index=True)
     status: str = Field(default="queued", index=True)
     error_message: Optional[str] = Field(default=None)

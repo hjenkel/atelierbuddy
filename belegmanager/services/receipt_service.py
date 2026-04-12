@@ -23,6 +23,7 @@ class ReceiptService:
         supplier_id: int | None = None,
         amount_gross_cents: int | None = None,
         vat_rate_percent: float | None = None,
+        notes: str | None = None,
         document_type: str = "invoice",
     ) -> None:
         with Session(engine) as session:
@@ -35,6 +36,8 @@ class ReceiptService:
                 raise ValueError("Ungültiger Belegtyp")
 
             receipt.doc_date = doc_date
+            normalized_notes = (notes or "").strip()
+            receipt.notes = normalized_notes or None
             if supplier_id is not None:
                 supplier = session.get(Supplier, supplier_id)
                 if supplier is None:

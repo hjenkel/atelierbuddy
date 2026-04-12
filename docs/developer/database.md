@@ -39,6 +39,7 @@ erDiagram
       int amount_gross_cents
       float vat_rate_percent
       int amount_net_cents
+      string notes
       string document_type
       string status
       string error_message
@@ -96,7 +97,7 @@ erDiagram
 ```
 
 ## Tabellen und fachliche Rolle
-- `receipt`: Belegkopf inkl. Betrag, Typ (`invoice`/`credit_note`), OCR-Status, Soft-Delete.
+- `receipt`: Belegkopf inkl. Betrag, optionalen Notizen, Typ (`invoice`/`credit_note`), OCR-Status, Soft-Delete.
 - `cost_allocation`: eine oder mehrere Zuordnungszeilen pro Beleg; Summe muss Beleg-Brutto entsprechen.
 - `cost_type`: Kostenkategorie (aktiv/archiviert).
 - `cost_subcategory`: Unterkategorie je Kostenkategorie, inkl. systemseitigem Default.
@@ -120,7 +121,7 @@ Initialisierung in `db.init_db()`:
    - bei Abweichung: **Hard Reset** (DB-Datei + Archivordner neu).
 2. `SQLModel.metadata.create_all(engine)`
 3. `_apply_additive_migrations(session)`:
-   - fügt fehlende Spalten idempotent hinzu (z. B. `receipt.document_type`, `cost_type.active`, `project.price_cents`, ...).
+   - fügt fehlende Spalten idempotent hinzu (z. B. `receipt.document_type`, `receipt.notes`, `cost_type.active`, `project.price_cents`, ...).
 4. `init_fts(session)` für `receipt_fts`
 5. `_seed_defaults(session)`:
    - Default-Kostenkategorien und Default-Unterkategorien

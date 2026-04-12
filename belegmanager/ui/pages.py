@@ -1604,6 +1604,9 @@ def register_pages(services: ServiceContainer) -> None:
                                 f"Netto ({settings.default_currency})",
                                 value=_format_cents(receipt.amount_net_cents, settings.default_currency),
                             ).props("readonly").classes("min-w-0 flex-1")
+                        notes_input = ui.textarea("Notizen (optional)", value=receipt.notes or "").props(
+                            'clearable rows=3 input-style="min-height: 5.5rem; resize: vertical;"'
+                        ).classes("w-full")
 
                         cost_type_select_options = {item.id: item.name for item in cost_types if item.id is not None}
                         project_map = project_options(active_only=True, include_ids=selected_project_ids)
@@ -2246,6 +2249,7 @@ def register_pages(services: ServiceContainer) -> None:
                             document_type_input.disable()
                             gross_input.disable()
                             vat_input.disable()
+                            notes_input.disable()
 
                         def _detail_move_to_deleted(receipt_id_for_action: int | None) -> None:
                             if not receipt_id_for_action:
@@ -2319,6 +2323,7 @@ def register_pages(services: ServiceContainer) -> None:
                                     supplier_id=int(supplier_input.value) if supplier_input.value else None,
                                     amount_gross_cents=amount_gross_cents,
                                     vat_rate_percent=vat_rate_percent,
+                                    notes=notes_input.value,
                                     document_type=document_type,
                                 )
                                 services.cost_allocation_service.save_allocations(
