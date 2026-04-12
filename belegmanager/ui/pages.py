@@ -2829,10 +2829,13 @@ def register_pages(services: ServiceContainer) -> None:
                         name_edit = ui.input("Name", value=current_name).classes("w-full")
                         icon_edit = ui.select(icon_option_map, value=current_icon, label="Symbol").classes("w-full")
                         icon_edit.props("options-html display-value-html")
-                        new_subcategory_input = ui.input("Neue Unterkategorie").classes("w-full")
                         show_archived_subcategories = False
-                        subcategory_column = ui.column().classes("w-full gap-2")
+                        active_subcategory_column = ui.column().classes("w-full gap-2")
+                        new_subcategory_input = ui.input("Neue Unterkategorie").classes("w-full")
+                        with ui.row().classes("w-full gap-2 items-end wrap"):
+                            ui.button("Unterkategorie hinzufügen", icon="add", on_click=lambda: add_subcategory()).props("flat")
                         archived_toggle_row = ui.row().classes("w-full")
+                        archived_subcategory_column = ui.column().classes("w-full gap-2")
                         archived_toggle_button: ui.button | None = None
 
                         def render_subcategories() -> None:
@@ -2857,8 +2860,8 @@ def register_pages(services: ServiceContainer) -> None:
                             active_items = [item for item in items if item.active]
                             archived_items = [item for item in items if not item.active]
 
-                            subcategory_column.clear()
-                            with subcategory_column:
+                            active_subcategory_column.clear()
+                            with active_subcategory_column:
                                 ui.label("Aktive Unterkategorien").classes("text-sm font-semibold")
                                 if not active_items:
                                     ui.label("Keine aktiven Unterkategorien.").classes("text-sm text-slate-600")
@@ -2884,7 +2887,9 @@ def register_pages(services: ServiceContainer) -> None:
                                             "text-xs text-slate-600"
                                         )
 
-                                if show_archived_subcategories:
+                            archived_subcategory_column.clear()
+                            if show_archived_subcategories:
+                                with archived_subcategory_column:
                                     ui.separator().classes("w-full my-1")
                                     ui.label("Archivierte Unterkategorien").classes("text-sm font-semibold")
                                     if not archived_items:
@@ -2978,8 +2983,6 @@ def register_pages(services: ServiceContainer) -> None:
                             except Exception as exc:
                                 _notify_error("Speichern fehlgeschlagen", exc)
 
-                        with ui.row().classes("w-full gap-2 items-end wrap"):
-                            ui.button("Unterkategorie hinzufügen", icon="add", on_click=add_subcategory).props("flat")
                         render_archived_toggle()
                         render_subcategories()
 

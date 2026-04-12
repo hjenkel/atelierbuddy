@@ -43,6 +43,7 @@ def apply_theme() -> None:
 
     ui.add_css(
         """
+        /* Design-Tokens: zentrale Farben, Schattierung und globale Maße */
         :root {
           --bm-bg-main: #ffe8ce;
           --bm-accent-primary: #5c30ff;
@@ -68,6 +69,7 @@ def apply_theme() -> None:
           --bm-shadow: 4px 4px 0 var(--bm-border);
           --bm-shadow-soft: 2px 2px 0 var(--bm-border);
           --bm-header-height: 46px;
+          --bm-field-label-offset-x: 2px;
           --q-primary: var(--bm-primary);
           --q-secondary: var(--bm-accent-play-1);
           --q-accent: var(--bm-accent-play-2);
@@ -257,6 +259,7 @@ def apply_theme() -> None:
           text-shadow: none;
         }
 
+        /* App-Grundlayout: Header-versetzter Inhalt + Sidebar/Content-Struktur */
         .bm-app-shell {
           margin-top: var(--bm-header-height);
           min-height: calc(100vh - var(--bm-header-height));
@@ -337,13 +340,6 @@ def apply_theme() -> None:
           box-shadow: var(--bm-shadow-soft);
         }
 
-        .bm-nav-item--active .q-btn__content,
-        .bm-nav-item--active .q-btn__content *,
-        .bm-nav-item--active .q-icon {
-          color: #ffffff !important;
-        }
-
-        .bm-nav-item--active,
         .bm-nav-item--active .q-btn__content,
         .bm-nav-item--active .q-btn__content *,
         .bm-nav-item--active .q-icon {
@@ -484,6 +480,7 @@ def apply_theme() -> None:
           box-shadow: var(--bm-shadow);
         }
 
+        /* Quasar-Field-Overrides: !important ist nötig, um Framework-Defaults zuverlässig zu übersteuern. */
         .q-field__control {
           border: 2px solid var(--bm-border) !important;
           border-radius: 8px !important;
@@ -493,9 +490,16 @@ def apply_theme() -> None:
           padding: 0 12px !important;
         }
 
+        /* Label bündig zum Eingabetext mit kleinem optischen Offset */
         .q-field__label {
           left: 0 !important;
-          padding: 0 12px !important;
+          padding-left: var(--bm-field-label-offset-x) !important;
+          padding-right: 0 !important;
+        }
+
+        /* Quasar setzt für Floating-Labels separate Positionsregeln */
+        .q-field--float .q-field__label {
+          left: 0 !important;
         }
 
         .q-field__native,
@@ -513,8 +517,11 @@ def apply_theme() -> None:
           content: none !important;
         }
 
-        .q-field,
-        .q-field * {
+        .q-field__control,
+        .q-field__label,
+        .q-field__native,
+        .q-field__input,
+        .q-field__marginal {
           transition: none !important;
         }
 
@@ -536,6 +543,7 @@ def apply_theme() -> None:
           color: var(--bm-muted) !important;
         }
 
+        /* Basisstil für Quasar-Buttons */
         .q-btn {
           border-radius: 8px;
           border: 2px solid var(--bm-border);
@@ -731,10 +739,6 @@ def apply_theme() -> None:
           gap: 12px;
         }
 
-        .bm-filter-field .q-field__control {
-          min-height: 44px !important;
-        }
-
         .bm-filter-btn {
           min-height: 44px !important;
         }
@@ -809,6 +813,7 @@ def apply_theme() -> None:
           background: #fff;
         }
 
+        /* Viewer-Komponenten (PDF/Bild) teilen denselben Rahmen- und Toolbar-Stil */
         .bm-pdf-viewer {
           display: flex;
           flex-direction: column;
@@ -1157,6 +1162,7 @@ def apply_theme() -> None:
           line-height: 1.2;
         }
 
+        /* Responsive Detailansicht: ab Tablet in eine Spalte umbrechen */
         @media (max-width: 1180px) {
           .bm-detail-card {
             max-height: none;
