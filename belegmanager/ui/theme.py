@@ -715,6 +715,22 @@ def apply_theme() -> None:
           border-bottom: 2px solid var(--bm-border);
         }
 
+        .bm-table {
+          overflow: hidden;
+        }
+
+        .bm-table .q-table,
+        .bm-table .q-table thead,
+        .bm-table .q-table thead tr {
+          background: var(--bm-accent-play-2);
+        }
+
+        .bm-table .q-table tbody,
+        .bm-table .q-table tbody tr,
+        .bm-table .q-table__middle {
+          background: var(--bm-surface);
+        }
+
         .bm-table .q-table tbody tr:nth-child(even) {
           background: #fff9f0;
         }

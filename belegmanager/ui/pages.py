@@ -41,8 +41,8 @@ _NAV_STATE = {
 _NAV_CONFIG: list[dict[str, Any]] = [
     {"type": "item", "path": "/", "label": "Dashboard", "icon": "dashboard"},
     {"type": "item", "path": "/belege", "label": "Belege", "icon": "description"},
-    {"type": "item", "path": "/projekte", "label": "Projekte", "icon": "palette"},
     {"type": "item", "path": "/kontakte", "label": "Kontakte", "icon": "contacts"},
+    {"type": "item", "path": "/projekte", "label": "Projekte", "icon": "palette"},
     {
         "type": "group",
         "key": "management",
