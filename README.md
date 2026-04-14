@@ -2,7 +2,7 @@
 
 Lokale Python-Web-App für einfache Beleg- und Verkaufsverwaltung in kreativen Arbeitskontexten.
 
-Aktuelle Version: `0.1.0` (pre-alpha)
+Aktuelle Version: `0.2` (pre-alpha)
 
 ## Wofür ist das?
 Atelier Buddy ist für **Künstler:innen, Bands und andere Kreative** gedacht, die ihre Ausgaben strukturiert erfassen wollen, ohne klassische Enterprise-Buchhaltungssoftware.
@@ -226,7 +226,7 @@ tar -czf atelierbuddy-backup-$(date +%Y-%m-%d).tar.gz data
 
 ## Weiterführende Entwicklerdoku
 - Einstieg: [docs/README.md](docs/README.md)
-- Die Dokumentation orientiert sich an der Version aus `pyproject.toml` (aktuell `0.1.0`).
+- Die Dokumentation orientiert sich an der Version aus `pyproject.toml` (aktuell `0.2`).
 
 ## Lizenz & Rechtliches
 - Projektlizenz: `AGPL-3.0-or-later` (siehe `LICENSE`)

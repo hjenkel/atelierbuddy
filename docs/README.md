@@ -2,7 +2,7 @@
 
 Diese Dokumentation ist der Einstiegspunkt für die technische Projektbeschreibung von **Atelier Buddy**.
 
-Version-Quelle (Single Source of Truth): `pyproject.toml` -> `[project].version` (aktuell `0.1.0`).
+Version-Quelle (Single Source of Truth): `pyproject.toml` -> `[project].version` (aktuell `0.2`).
 
 ## Inhalte
 - [Developer-Dokumentation](./developer/README.md)

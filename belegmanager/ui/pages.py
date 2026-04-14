@@ -920,7 +920,7 @@ def register_pages(services: ServiceContainer) -> None:
                     ui.label("Belege mit fehlenden Angaben").classes("text-lg font-semibold bm-on-dark-title")
 
                     if not receipts:
-                        with ui.card().classes("bm-card p-4"):
+                        with ui.card().classes("bm-card bm-status-positive-card p-4"):
                             ui.label("Alles erledigt. Sehr gut!").classes("text-base font-semibold bm-status-positive-text")
                         return
 
@@ -2928,11 +2928,6 @@ def register_pages(services: ServiceContainer) -> None:
                     internal_number_input = ui.input("Interne Verkaufsnummer", value=order.internal_number).props(
                         "readonly"
                     ).classes("min-w-[220px] flex-1")
-                    with ui.row().classes("items-center gap-2"):
-                        project_mode_input = ui.switch("Projekt je Position", value=project_mode_enabled).classes(
-                            "bm-inline-switch"
-                        )
-                        project_mode_input.props("dense color=primary size=sm")
                     head_project_container = ui.row().classes("min-w-[260px] flex-1")
                     with head_project_container:
                         head_project_input = ui.select(
@@ -2941,8 +2936,15 @@ def register_pages(services: ServiceContainer) -> None:
                             label="Projekt für alle Positionen",
                             clearable=True,
                         ).classes("w-full")
-                    total_preview = ui.input("Gesamt", value="-").props("readonly").classes("w-48")
-                    status_preview = ui.input("Status", value=order_status_label(order)).props("readonly").classes("w-40")
+                    with ui.row().classes("items-center"):
+                        project_mode_input = ui.switch("Projekt je Position", value=project_mode_enabled).classes(
+                            "bm-inline-switch bm-order-project-toggle"
+                        )
+                        project_mode_input.props("color=primary")
+                    total_preview = ui.input("Gesamt", value="-").props("readonly").classes("w-48 bm-order-meta-field")
+                    status_preview = ui.input("Status", value=order_status_label(order)).props("readonly").classes(
+                        "w-40 bm-order-meta-field"
+                    )
 
                 notes_input = ui.textarea("Notiz", value=order.notes or "").classes("w-full")
                 item_editor = ui.column().classes("w-full gap-2")

@@ -2,7 +2,7 @@
 
 Diese Sektion beschreibt den technischen Ist-Zustand der App auf Basis des aktuellen Codes.
 
-Version-Single-Source: `pyproject.toml` (`[project].version`, aktuell `0.1.0`).
+Version-Single-Source: `pyproject.toml` (`[project].version`, aktuell `0.2`).
 
 ## Inhalte
 - [Datenbankstruktur](./database.md)

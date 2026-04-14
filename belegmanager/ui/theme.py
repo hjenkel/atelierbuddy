@@ -249,8 +249,13 @@ def apply_theme() -> None:
           color: var(--bm-text);
         }
 
+        .bm-status-positive-card {
+          background: var(--bm-success) !important;
+          border-color: var(--bm-border) !important;
+        }
+
         .bm-status-positive-text {
-          color: var(--bm-success);
+          color: #fff;
           font-weight: 700;
         }
 
@@ -629,6 +634,36 @@ def apply_theme() -> None:
           border-radius: 999px;
           background: var(--bm-surface-strong);
           border: 2px solid var(--bm-border);
+        }
+
+        .bm-order-meta-field .q-field__control {
+          min-height: 56px !important;
+        }
+
+        .bm-order-project-toggle {
+          min-height: 56px;
+          padding: 0 12px;
+          border-radius: 10px;
+          background: var(--bm-surface-strong);
+          border: 2px solid var(--bm-border);
+          box-shadow: none;
+        }
+
+        .bm-order-project-toggle .q-toggle {
+          min-height: 52px;
+          display: inline-flex;
+          align-items: center;
+          gap: 10px;
+        }
+
+        .bm-order-project-toggle .q-toggle__label {
+          color: var(--bm-text);
+          font-weight: 600;
+          line-height: 1.2;
+        }
+
+        .bm-order-project-toggle .q-toggle__inner {
+          font-size: 44px;
         }
 
         .bm-doc-type-toggle.q-btn-group,

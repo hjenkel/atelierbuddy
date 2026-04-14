@@ -1,7 +1,7 @@
 # Berechnungen und Validierung
 
 Quelle: `belegmanager/ui/pages.py`, `belegmanager/services/receipt_service.py`, `belegmanager/services/cost_allocation_service.py`  
-Version-Single-Source: `pyproject.toml` (`0.1.0`)
+Version-Single-Source: `pyproject.toml` (`0.2`)
 
 ## Geldwerte und Parsing
 Geld wird als Integer-Cents gespeichert (`amount_*_cents`).
