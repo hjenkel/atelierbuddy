@@ -1,13 +1,16 @@
 # Dokumentation
 
-Diese Dokumentation ist der Einstiegspunkt für die technische Projektbeschreibung von **Atelier Buddy**.
+Diese Dokumentation bündelt den technischen Ist-Zustand von Atelier Buddy.
 
 Version-Quelle (Single Source of Truth): `pyproject.toml` -> `[project].version` (aktuell `0.2`).
 
-## Inhalte
+## Ziel der Doku
+- den aktuellen Codezustand nachvollziehbar machen
+- Architektur, Datenmodell und Fachlogik transparent dokumentieren
+- neue Mitwirkende schnell orientieren
+
+## Struktur
 - [Developer-Dokumentation](./developer/README.md)
 
-## Ziel der Doku
-- Architektur und Datenmodell nachvollziehbar machen.
-- Fachlogik (Zuordnung, Berechnungen, Validierung) transparent dokumentieren.
-- Neue Mitwirkende schnell produktiv machen (GitHub-ready, plain Markdown).
+## Grundsatz
+Die Doku beschreibt das implementierte Verhalten der App. Wenn Doku und Code voneinander abweichen, gilt der Code als Quelle und die Doku muss nachgezogen werden.

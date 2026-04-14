@@ -1,239 +1,138 @@
 # Atelier Buddy
 
-Lokale Python-Web-App für einfache Beleg- und Verkaufsverwaltung in kreativen Arbeitskontexten.
+Lokale Web-App für Belegverwaltung, Ausgangsrechnungen und betriebliche Auswertungen in kreativen Arbeitskontexten.
 
 Aktuelle Version: `0.2` (pre-alpha)
 
-## Wofür ist das?
-Atelier Buddy ist für **Künstler:innen, Bands und andere Kreative** gedacht, die ihre Ausgaben strukturiert erfassen wollen, ohne klassische Enterprise-Buchhaltungssoftware.
+## Was ist Atelier Buddy?
+Atelier Buddy richtet sich an Künstler:innen, Bands und andere Solo- oder Kleinstteams, die Belege, Kontakte, Projekte und Verkäufe an einem Ort pflegen möchten, ohne in klassische ERP- oder Steuerkanzlei-Software zu wechseln.
 
-Fokus aktuell:
-- einfache Belegverwaltung
-- einfache Verwaltung von Ausgangsrechnungen / Verkäufen
-- saubere Zuordnung von Ausgaben
-- Vorbereitung für EÜR-Auswertungen
+Die App ist heute mehr als ein "einfacher Belegsammler": Sie verbindet Dokumentarchiv, OCR, fachliche Zuordnung, Ausgangsrechnungslogik, Stammdatenpflege und projektbezogene Auswertung in einer lokalen Anwendung.
 
-Nicht im Fokus aktuell:
-- USt-Voranmeldungen
-- ELSTER-Integration
-- rechtsverbindliche Steuererklärungs-Funktionen
+## Aktueller Produktfokus
+- Belege importieren, archivieren, per OCR erschließen und durchsuchbar machen
+- Ausgaben fachlich über Kostenkategorien, Unterkategorien und optional Projekte zuordnen
+- Verkäufe bzw. Ausgangsrechnungen mit Kontaktbezug und Positionszeilen verwalten
+- Einnahmen und Ausgaben für eine EÜR-nahe Sicht auswerten
+- lokalen, selbst betriebenen Einsatz statt Cloud- oder Team-ERP
 
-## Wichtige Hinweise (Haftung, Nutzung, Verantwortung)
-- Die Software wird **ohne Gewährleistung** bereitgestellt ("as is").
-- Es wird **keine Haftung** für Datenverlust, Fehlberechnungen oder steuerliche Folgen übernommen.
-- Die App hat **keine steuerliche oder rechtliche Prüfung** durch Steuerberatung/Kanzlei erhalten.
+## Bewusste Grenzen
+- keine ELSTER-Integration
+- keine USt-Voranmeldung
+- keine Zahlungslogik für Einnahmen/Ausgaben mit eigener Buchungstabelle
+- keine PDF-Rechnungserzeugung aus Verkäufen
+- keine revisionssichere Buchhaltungs- oder Steuerlösung
+
+## Kernfunktionen
+- Login-Schutz mit Setup-Token für die Ersteinrichtung
+- Batch-Import von PDF-, JPG-, PNG- und HEIC-Dateien
+- OCR mit `ocrmypdf` und Volltextsuche via SQLite FTS5
+- Belegdetail mit Brutto/USt/Netto, Anbieter, Typ, Notizen und Vollständigkeitsstatus
+- Kostenzuordnung pro Beleg mit Standardmodus oder Split-Aufteilung
+- Stammdaten für Projekte, Kontakte, Kontaktkategorien, Anbieter und Kostenkategorien
+- Verkaufsverwaltung mit internem Nummernkreis, manueller Rechnungsnummer und Positionszeilen
+- projektbezogene Verkaufspositionen mit Dezimalmengen und berechneten Zeilensummen
+- Einnahmenauswertung nach Rechnungsdatum und Projektdrilldown
+- Soft-Delete für Belege und Verkäufe, inklusive Wiederherstellung
+- Fremdlizenz-Ansicht und Laufzeitinformationen in den Einstellungen
+
+## Wichtige Betriebsrealität
+- Die App ist lokal-first und self-hosted gedacht.
+- Persistente Daten liegen unter `data/`.
+- Bei einem Wechsel von `SCHEMA_VERSION` in `belegmanager/db.py` erfolgt derzeit ein Hard Reset von Datenbank und Archiv.
+- Die App ist pre-alpha. Datenmodell, Workflows und UI können sich noch deutlich ändern.
+
+## Wichtige Hinweise
+- Die Software wird ohne Gewährleistung bereitgestellt.
+- Es gibt keine steuerliche oder rechtliche Freigabe durch eine Kanzlei.
 - Nutzung erfolgt in eigener Verantwortung.
-- **Regelmäßige Backups sind dringend empfohlen.**
+- Regelmäßige Backups sind dringend empfohlen.
 
-## Vibecoding-Transparenz
-Dieses Projekt wurde komplett **vibecoded** erstellt.
-
-Das heißt: Es kann fachliche, technische und sicherheitsrelevante Lücken geben.
-Wenn du Erfahrung mit Python, Buchhaltungslogik, Security oder UX hast:
-**Code-Reviews, Validierung und Verbesserungen sind sehr willkommen.**
-
-## Features
-- Login-Schutz mit einmaligem Setup-Token für die Ersteinrichtung
-- Session-Sicherheit mit Idle-Timeout, absoluter Session-Laufzeit und Logout
-- Batch-Import von Belegen (PDF, JPG, PNG, HEIC) direkt in der Belege-Seite
-- OCR mit `ocrmypdf` (deu+eng)
-- Volltextsuche via SQLite FTS5
-- Kostenzuordnung pro Beleg mit Kostenkategorie + Unterkategorie + optionalem Projekt
-- Verkaufsverwaltung mit Kontaktbezug, interner Verkaufsnummer, manueller Rechnungsnummer und einfachen Positionszeilen
-- Projektbezogene Verkaufspositionen mit Mengen, Einzelpreisen und berechneten Zeilensummen
-- Einnahmenauswertung für abgerechnete Verkäufe nach Rechnungsdatum mit Projektdrilldown
-- Wenn kein Projekt gewählt wird, erfolgt intern automatisch die Zuordnung zur Kostenstelle `Allgemeine Ausgabe`
-- Standardmodus mit 100%-Zuordnung und optionaler Split-Aufteilung
-- Schlanke Kontaktverwaltung mit pflegbaren Kontaktkategorien
-- Anbieter-Stammdaten und Anbieterzuordnung
-- Rechnungsbetrag mit Brutto/USt/Netto
-- Cover-Foto pro Projekt (optimiertes WebP)
-- Beleg-Vollständigkeitsstatus (Pflichtfelder)
-- Thumbnail-Archiv und Belegdetail als Vollseite (Originaldatei links, Indexierung rechts)
-
-## Sicherheits-Baseline (v1)
-- verpflichtende Anmeldung über `/login`
-- einmalige Ersteinrichtung über `/setup` mit Setup-Token (Token wird im Server-Log ausgegeben)
-- Passworthashing mit Argon2id (`argon2-cffi`)
-- Session-Limits:
-  - Idle-Timeout: Default `8h`
-  - absolute Session-Laufzeit: Default `7d`
-- Trusted-Host- und Origin-Validierung für relevante Requests
-- Security-Header (`X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy`, `Permissions-Policy`, `frame-ancestors`)
-- Upload-Härtung mit Größenlimit, Inhaltsprüfung und Symlink-Blockade
-- `/files` liefert nur noch Inhalte aus `data/archive/*` (keine DB-/Schema-Dateien)
-
-## Schnellstart mit Docker (empfohlen)
+## Schnellstart mit Docker
 ### Voraussetzungen
-- Docker Desktop (oder Docker Engine + Compose Plugin)
+- Docker Desktop oder Docker Engine mit Compose Plugin
 
-### Schritt-für-Schritt
+### Start
 ```bash
-# 1) In deinen gewünschten Zielordner wechseln (z. B. Projekt-, Docker- oder Home-Verzeichnis)
-cd /pfad/zu/deinem/zielordner
-
-# 2) Repository klonen
 git clone https://github.com/hjenkel/atelierbuddy.git
-
-# 3) In den Projektordner wechseln
 cd atelierbuddy
-
-# 4) (empfohlen) einmalig Session-Secret setzen
 echo "BM_SESSION_SECRET=$(openssl rand -hex 32)" > .env
-
-# 5) Mit der im Repo enthaltenen docker-compose.yml starten
 docker compose up --build -d
 ```
 
 App-URL: `http://localhost:12321`
 
-### Ersteinrichtung (Setup-Token)
-Beim allerersten Start muss ein Admin-Account über `/setup` angelegt werden.
+### Ersteinrichtung
+Beim ersten Start muss ein Admin-Account über `/setup` angelegt werden.
 
-1. Setup-Token aus den Container-Logs lesen:
+1. Setup-Token aus den Logs lesen:
    ```bash
    docker compose logs -f atelier-buddy
    ```
-2. Auf die Zeile achten:
-   `Atelier Buddy Setup Token (nur einmalig bis erster Benutzer angelegt ist): <TOKEN>`
-3. `http://localhost:12321/setup` öffnen und diesen Token einfügen.
+2. `/setup` im Browser öffnen.
+3. Token eintragen und ersten Benutzer anlegen.
 
-Hinweis:
-- Der Setup-Token gilt immer nur für die aktuell laufende Instanz.
-- Nach einem Neustart (solange noch kein erster Benutzer existiert) wird ein neuer Token erzeugt.
-
-### Was wird dabei genutzt?
-- Es wird die bereits im Repository enthaltene Datei `docker-compose.yml` verwendet.
-- Vorkonfiguriert sind:
-  - Port-Mapping `12321:8080`
-  - Persistenz-Volume `atelier_buddy_data` nach `/app/data`
-  - Security- und Laufzeit-Defaults kommen aus der App-Konfiguration (`config.py`) und sind über ENV optional überschreibbar
-
-Wichtig:
-- Die GitHub-URL (`https://github.com/hjenkel/atelierbuddy`) gehört zum `git clone`-Schritt.
-- Sie wird **nicht** in `docker-compose.yml` eingetragen.
-- Für produktiven Betrieb sollte `BM_SESSION_SECRET` gesetzt sein (z. B. via `.env` wie oben).
-- Für strengere Host-Prüfung `BM_ALLOWED_HOSTS` explizit setzen (Default erlaubt alle Hosts).
-- Für Reverse-Proxy/HTTPS-Setups optional `BM_ALLOWED_ORIGINS` explizit setzen.
-
-### Betrieb im Alltag
-```bash
-# Status/Logs
-docker compose ps
-docker compose logs -f
-
-# Neustart/Stop
-docker compose restart
-docker compose down
-
-# Neu bauen + starten
-docker compose up --build -d
-```
-
-### Update auf neue Version
-```bash
-git pull
-docker compose up --build -d
-```
-
-### Docker-Backup-Hinweis
-- Persistente Daten liegen im Docker Named Volume `atelier_buddy_data` (`/app/data` im Container).
-- OCR-Binaries und Sprachpakete sind im Docker-Image enthalten.
-
-### Empfohlener Betrieb
-Empfohlen ist ein kleiner lokaler Host im Heim-/Studio-Netz, z. B. ein Raspberry Pi oder Mini-PC, auf dem Docker dauerhaft läuft.
-
-## Lokale Installation (ohne Docker)
+## Lokale Installation
 ### Voraussetzungen
 - Python 3.12+
 - `ocrmypdf`, `tesseract`, `ghostscript` im Systempfad
 
-macOS (Beispiel):
+macOS:
 ```bash
 brew install ocrmypdf tesseract ghostscript
 brew install tesseract-lang
 ```
 
-Ubuntu/Debian (Beispiel):
+Ubuntu/Debian:
 ```bash
 sudo apt update
 sudo apt install -y ocrmypdf tesseract-ocr tesseract-ocr-deu tesseract-ocr-eng ghostscript
 ```
 
-### Schritte
+### Start
 ```bash
-# 1) Projektordner
-cd /pfad/zu/atelierbuddy
-
-# 2) virtuelle Umgebung
 python3.12 -m venv .venv
 source .venv/bin/activate
-
-# 3) Abhängigkeiten
 python -m pip install -U pip
 python -m pip install -e .
-
-# 4) Start
 python -m belegmanager
 ```
 
 App-URL lokal: `http://127.0.0.1:8080`
 
-Beim ersten Start wird der Setup-Token im Terminal ausgegeben (Zeile mit `Atelier Buddy Setup Token ...`). Diesen Token unter `/setup` verwenden.
+## Konfiguration
+Wichtige ENV-Parameter:
+- `BM_SESSION_SECRET`: Secret für signierte Session-Cookies
+- `BM_ALLOWED_HOSTS`: Host-Allowlist, Default `*`
+- `BM_ALLOWED_ORIGINS`: optionale Origin-Allowlist
+- `BM_SESSION_IDLE_MINUTES`: Default `480`
+- `BM_SESSION_MAX_AGE_HOURS`: Default `168`
+- `BM_SECURE_COOKIES`: `auto`, `true` oder `false`
+- `BM_MAX_UPLOAD_MB`: Default `25`
+- `BM_OCR_TIMEOUT_SECONDS`: Default `300`
+- `BM_OCR_LANGUAGES`: Default `deu+eng`
 
-## Sicherheitsrelevante ENV-Parameter
-- Alle Parameter sind optional; die App hat sinnvolle Defaults.
-- In `docker-compose.yml` werden bewusst nur minimale Standardwerte gesetzt, alles Weitere nur bei Bedarf überschrieben.
-- `BM_SESSION_SECRET`:
-  - Secret für signierte Session-Cookies.
-  - Wenn leer, wird ein temporäres Secret erzeugt (Sessions sind dann nicht restart-stabil).
-- `BM_ALLOWED_HOSTS`:
-  - Kommagetrennte Host-Allowlist für `TrustedHostMiddleware`.
-  - Default: `*` (alle Hosts erlaubt, LAN-freundlich)
-  - Empfehlung für härtere Produktion: explizite Liste setzen, z. B. `localhost,127.0.0.1,srv-home-01,192.168.178.50`
-- `BM_ALLOWED_ORIGINS`:
-  - Optionale kommagetrennte Origin-Allowlist.
-  - Wenn leer: gleiche Origin zur aktuellen Host-URL.
-- `BM_SESSION_IDLE_MINUTES`: Default `480` (`8h`)
-- `BM_SESSION_MAX_AGE_HOURS`: Default `168` (`7d`)
-- `BM_SECURE_COOKIES`:
-  - `auto` (Default), `true`, `false`
-  - `auto`: Secure-Cookie bei HTTPS / `X-Forwarded-Proto=https`
-- `BM_MAX_UPLOAD_MB`: Upload-Größenlimit in MB, Default `25`
-- `BM_OCR_TIMEOUT_SECONDS`: OCR-Timeout pro Beleg in Sekunden, Default `300`
-
-## Daten & Backups
-Lokale Daten liegen unter `data/`:
+## Daten und Backups
+Persistente Laufzeitdaten:
 - `data/belegmanager.db`
 - `data/archive/`
 
-Einfaches Backup-Beispiel:
+Einfaches Backup:
 ```bash
 tar -czf atelierbuddy-backup-$(date +%Y-%m-%d).tar.gz data
 ```
 
-## Hinweise
-- Bei internem Schema-Marker-Wechsel (`db.py` -> `SCHEMA_VERSION`) wird ein automatischer Full-Reset ausgeführt (DB + Archiv), da kein Alt-Daten-Mapping verwendet wird.
-- Falls `ocrmypdf` fehlt, werden OCR-Jobs mit Fehlermeldung markiert.
-- Falls `deu` in Tesseract fehlt, läuft OCR mit verfügbaren Sprachen weiter (z. B. `eng`) und zeigt einen Setup-Hinweis.
-- Bei textbasierten PDFs wird bei `OCR skipped ...` der PDF-Textlayer für Suche/FTS übernommen.
+## Entwicklung
+- Start lokal: `python -m belegmanager`
+- Tests: `./.venv/bin/python -m pytest -q`
+- Versionsquelle: `pyproject.toml` -> `[project].version`
+- Changelog: [CHANGELOG.md](CHANGELOG.md)
 
-## Versionierung
-- Single Source of Truth: `pyproject.toml` -> `[project].version`
-- Laufzeitanzeige in der App (Seite `Einstellungen`) nutzt diese Version.
-- Changelog wird in `CHANGELOG.md` geführt.
-- Empfehlung für pre-alpha: `0.1.x` für Bugfixes, `0.2.0` für neue Features.
+## Dokumentation
+- Überblick: [docs/README.md](docs/README.md)
+- Technische Doku: [docs/developer/README.md](docs/developer/README.md)
 
-## Weiterführende Entwicklerdoku
-- Einstieg: [docs/README.md](docs/README.md)
-- Die Dokumentation orientiert sich an der Version aus `pyproject.toml` (aktuell `0.2`).
-
-## Lizenz & Rechtliches
-- Projektlizenz: `AGPL-3.0-or-later` (siehe `LICENSE`)
+## Lizenz und Rechtliches
+- Lizenz: `AGPL-3.0-or-later`
 - Copyright: `Copyright (c) 2026 Hanno Jenkel`
-- In der App unter `Einstellungen` gibt es den Link `Fremdlizenzen` für die Übersicht aller Python-Abhängigkeiten (inkl. transitiv) mit Lizenzinformationen.
-- Optionaler Neuaufbau des Lizenz-Caches:
-  ```bash
-  source .venv/bin/activate
-  python -c "from belegmanager.legal import get_third_party_notices; get_third_party_notices(force_refresh=True)"
-  ```
+- Fremdlizenzen sind in der App unter `Einstellungen` einsehbar.

@@ -1,101 +1,116 @@
-# Architekturentscheidungen (Warum)
+# Architekturentscheidungen
 
 Version-Single-Source: `pyproject.toml` (`0.2`)
 
-## 1) Lokal-first, Self-Hosted mit Login-Basis
+## 1. Lokal-first und self-hosted
 Entscheidung:
-- lokale Python-Web-App mit verpflichtender Anmeldung,
-- kein vollständiges Rollen-/Rechtesystem in v1,
-- Architektur offen für spätere Mehrbenutzer-Erweiterung.
+- lokale Python-Web-App
+- Daten und Dateien bleiben im eigenen Betrieb
+- kein Cloud-Zwang
 
 Warum:
-- geringe Betriebskomplexität,
-- schnelle Iteration mit direktem Nutzerfeedback,
-- Datenschutz/Dateien bleiben lokal.
-- Zugangsschutz ist auch im LAN ein realistisches Basisbedürfnis.
+- passt gut zu kleinen kreativen Setups
+- hält Infrastruktur und Datenschutz pragmatisch
+- erlaubt schnelle Iteration ohne externe Plattformabhängigkeit
 
-## 2) SQLite + SQLModel
+## 2. SQLite plus SQLModel
 Entscheidung:
-- SQLite als persistente Datenbasis,
-- SQLModel/SQLAlchemy als ORM-Schicht.
+- SQLite als persistente Datenbasis
+- SQLModel/SQLAlchemy als Modell- und Query-Schicht
 
 Warum:
-- kein externer DB-Server nötig,
-- ausreichend für lokale Last,
-- klare Migrations-/Seed-Logik im App-Start.
+- kein externer Datenbankserver nötig
+- ausreichend für den erwarteten lokalen Einsatz
+- Entwicklung bleibt leichtgewichtig
 
-## 3) Hard-Reset bei Schema-Versionwechsel
+## 3. Hard Reset bei Schema-Wechsel in der frühen Phase
 Entscheidung:
-- bei Marker-Mismatch wird DB + Archiv komplett neu aufgebaut.
+- bei Marker-Mismatch werden DB und Archiv aktuell komplett neu aufgebaut
 
 Warum:
-- frühe Produktphase, schneller Umbau ohne komplexe Legacy-Migration.
-- reduziert Risiko inkonsistenter Altdaten bei grossen Modellwechseln.
+- das Produkt befindet sich noch in einer Phase mit schnellen Modelländerungen
+- komplexe Migrationen würden aktuell mehr Last als Nutzen erzeugen
 
 Konsequenz:
-- für spätere stabile Releases sollte dieses Verhalten durch echte Migrationen ersetzt werden.
+- für spätere stabilere Releases sollte dieses Verhalten durch echte Migrationen ersetzt werden
 
-## 4) Kostenzuordnung als fachliche Wahrheit
+## 4. Ausgabenlogik über `cost_allocation`
 Entscheidung:
-- keine direkte fachliche „Beleg->Projekt/Kategorie“-Wahrheit,
-- stattdessen `cost_allocation` als zentrale Verteilungsebene.
+- Ausgaben werden fachlich nicht direkt an einen Belegkopf gebunden
+- stattdessen bildet `cost_allocation` die zentrale Verteilungsebene
 
 Warum:
-- Split-Fähigkeit,
-- klare Summenregeln,
-- auswertbare Struktur für Kategorie-/Unterkategorie-Reports.
+- unterstützt Split-Zuordnungen
+- sichert Summenkonsistenz
+- bildet eine belastbare Basis für Reports
 
-## 5) Versteckte technische Kostenstelle
+## 5. Verkauf und Rechnung sind in v0.2 derselbe Datensatz
 Entscheidung:
-- wenn kein Projekt gesetzt ist, wird intern `Allgemeine Ausgabe` als `cost_area` gesetzt.
+- es gibt kein separates Rechnungsobjekt
+- `sales_order` modelliert den Verkauf und bei gesetztem Rechnungsdatum zugleich die Ausgangsrechnung
 
 Warum:
-- UI bleibt simpel (Projekt optional),
-- Daten bleiben dennoch technisch vollständig und konsistent.
+- hält die Modellkomplexität für den aktuellen Bedarf niedriger
+- deckt den praktischen Kernworkflow bereits gut ab
 
-## 6) OCR im Background-Thread
+Konsequenz:
+- spätere Erweiterungen wie Zahlungseingänge, Teilzahlungen oder Dokumenterzeugung können ein eigenes Modell erfordern
+
+## 6. Einnahmenauswertung nach Rechnungsdatum
 Entscheidung:
-- OCR über `OCRJobQueue` im Worker-Thread.
+- der Einnahmenreport wertet aktuell nach `invoice_date` aus
+- nicht nach Zahlungseingängen
 
 Warum:
-- UI bleibt reaktiv,
-- lange OCR-Laufzeiten blockieren nicht die Bedienung,
-- Statusmodell (`queued/running/done/error`) bleibt transparent.
+- es gibt derzeit keine separate Zahlungstabelle
+- der Report bleibt dadurch fachlich konsistent zum vorhandenen Datenmodell
 
-## 7) FTS5 für Suche
+## 7. Löschschutz für abgerechnete Verkäufe
 Entscheidung:
-- Volltextsuche über SQLite FTS5 (`receipt_fts`).
+- Verkäufe mit `invoice_date` oder `invoice_number` können weder archiviert noch endgültig gelöscht werden
 
 Warum:
-- gute Suchperformance ohne externe Suchinfrastruktur,
-- passend für lokale Deploymentform.
+- schützt vor dem Entfernen bereits fakturierter Vorgänge
+- passt besser zu kaufmännischer Nachvollziehbarkeit als ein freies Löschen
 
-## 8) Integer-Cents für Geld
+## 8. Personenzentrierte Kontakte
 Entscheidung:
-- Geldwerte ausschließlich als Integer-Cents speichern.
+- Kontakte bleiben personenzentriert
+- mindestens Vorname oder Nachname ist erforderlich
 
 Warum:
-- stabile Berechnungen ohne Float-Rundungsfehler,
-- verlässliche Summenvalidierung über Allokationen.
+- passt zum bestehenden UI- und Datenmodell
+- vermeidet eine zweite Organisationslogik im Kontaktbereich
 
-## 9) AGPL + Rechtsinfos in App
+## 9. OCR im Hintergrund
 Entscheidung:
-- Projektlizenz AGPL-3.0-or-later,
-- Copyright und Fremdlizenz-Dialog in Einstellungen.
+- OCR läuft über `OCRJobQueue` im Worker-Thread
 
 Warum:
-- Open-Source-Nutzung sauber vorbereiten,
-- rechtliche Transparenz direkt in der Anwendung.
+- lange OCR-Läufe blockieren die UI nicht
+- Statuswechsel bleiben nachvollziehbar
 
-## 10) Sicherheits-Baseline pragmatisch statt Enterprise
+## 10. FTS5 für lokale Suche
 Entscheidung:
-- Authentifizierung mit `app_user` + Argon2id-Hashing,
-- einmalige Setup-Seite mit Setup-Token aus Server-Log,
-- Session-Timeouts (Idle + absolut) und Login-Lockout bei Fehlversuchen,
-- Trusted-Host/Origin-Checks und grundlegende Security-Header,
-- Upload-Härtung inkl. Inhaltsprüfung und Größenlimit.
+- Volltextsuche über SQLite FTS5
 
 Warum:
-- adressiert die wichtigsten Risiken einer self-hosted Web-App,
-- bleibt überschaubar und wartbar,
-- verbaut keine spätere Mehrbenutzer-Entwicklung.
+- gute lokale Suchperformance
+- kein externer Suchdienst nötig
+
+## 11. Integer-Cents und Decimal-Mengen
+Entscheidung:
+- Geldwerte als Integer-Cents
+- Verkaufsmengen als Decimal mit drei Nachkommastellen
+
+Warum:
+- robuste Rundung und Summenbildung
+- praxistauglich für Stückzahlen, Zeiten und Teilmengen
+
+## 12. Pragmatic Security statt Enterprise-Stack
+Entscheidung:
+- Setup-Token, Login, Argon2id, Session-Timeouts, Host-/Origin-Prüfung und Upload-Härtung als Basis
+
+Warum:
+- deckt die wichtigsten Risiken einer self-hosted Web-App ab
+- bleibt überschaubar und wartbar
