@@ -1,14 +1,24 @@
 from __future__ import annotations
 
+from collections import defaultdict
 from datetime import date
 from typing import Any
 
 from sqlalchemy import func
+from sqlalchemy.orm import selectinload
 from sqlmodel import Session, select
 
 from ..db import engine
-from ..models import CostAllocation, CostSubcategory, CostType, Receipt
-from ..schemas import CategoryTotalRow, ReportTotals, SubcategoryTotalRow
+from ..models import CostAllocation, CostSubcategory, CostType, Order, OrderItem, Receipt
+from ..schemas import (
+    CategoryTotalRow,
+    IncomeOrderRow,
+    IncomeProjectTotalRow,
+    IncomeReportTotals,
+    ReportTotals,
+    SubcategoryTotalRow,
+)
+from .order_service import order_item_total_cents
 
 
 class ReportService:
@@ -96,6 +106,65 @@ class ReportService:
             if subcategory_id is not None
         ]
 
+    def build_income_summary(self, date_from: date | None, date_to: date | None) -> IncomeReportTotals:
+        orders = self._invoiced_orders(date_from=date_from, date_to=date_to)
+        totals_by_project_cents: dict[tuple[int, str], int] = defaultdict(int)
+        overall_total_cents = 0
+
+        for order in orders:
+            overall_total_cents += self._order_total_cents(order)
+            for item in order.items:
+                if item.project is None or item.project.id is None:
+                    key = (0, "Ohne Projekt")
+                else:
+                    key = (item.project.id, item.project.name)
+                totals_by_project_cents[key] += order_item_total_cents(item.quantity, item.unit_price_cents)
+
+        totals_by_project = [
+            IncomeProjectTotalRow(project_id=project_id, project_name=project_name, total_cents=total_cents)
+            for (project_id, project_name), total_cents in totals_by_project_cents.items()
+        ]
+        totals_by_project.sort(key=lambda row: (-abs(row.total_cents), row.project_name.casefold()))
+
+        return IncomeReportTotals(
+            order_count=len(orders),
+            overall_total_cents=overall_total_cents,
+            totals_by_project=totals_by_project,
+        )
+
+    def build_income_order_breakdown(
+        self,
+        date_from: date | None,
+        date_to: date | None,
+        project_id: int,
+    ) -> list[IncomeOrderRow]:
+        if project_id < 0:
+            return []
+
+        rows: list[IncomeOrderRow] = []
+        for order in self._invoiced_orders(date_from=date_from, date_to=date_to):
+            project_total_cents = 0
+            for item in order.items:
+                if project_id == 0:
+                    if item.project_id is not None:
+                        continue
+                elif item.project_id != project_id:
+                    continue
+                project_total_cents += order_item_total_cents(item.quantity, item.unit_price_cents)
+            if project_total_cents == 0:
+                continue
+            rows.append(
+                IncomeOrderRow(
+                    order_id=order.id or 0,
+                    internal_number=order.internal_number,
+                    contact_name=self._contact_name(order),
+                    invoice_date=order.invoice_date,
+                    total_cents=project_total_cents,
+                )
+            )
+        rows.sort(key=lambda row: (row.invoice_date, row.internal_number), reverse=True)
+        return rows
+
     def _valid_receipt_ids_stmt(self, date_from: date | None, date_to: date | None):
         stmt = (
             select(Receipt.id.label("receipt_id"))
@@ -114,3 +183,37 @@ class ReportService:
         if date_to:
             stmt = stmt.where(Receipt.doc_date <= date_to)
         return stmt.subquery("valid_receipts")
+
+    def _invoiced_orders(self, date_from: date | None, date_to: date | None) -> list[Order]:
+        with Session(self._engine) as session:
+            stmt = (
+                select(Order)
+                .where(
+                    Order.deleted_at.is_(None),
+                    Order.invoice_date.is_not(None),
+                )
+                .options(
+                    selectinload(Order.contact),
+                    selectinload(Order.items).selectinload(OrderItem.project),
+                )
+                .order_by(Order.invoice_date.desc(), Order.created_at.desc())
+            )
+            if date_from:
+                stmt = stmt.where(Order.invoice_date >= date_from)
+            if date_to:
+                stmt = stmt.where(Order.invoice_date <= date_to)
+            orders = list(session.exec(stmt).all())
+
+        return [order for order in orders if order.items]
+
+    def _order_total_cents(self, order: Order) -> int:
+        return sum(order_item_total_cents(item.quantity, item.unit_price_cents) for item in order.items)
+
+    def _contact_name(self, order: Order) -> str:
+        if order.contact is None:
+            return "-"
+        parts = [part.strip() for part in (order.contact.given_name, order.contact.family_name) if (part or "").strip()]
+        if parts:
+            return " ".join(parts)
+        organisation = (order.contact.organisation or "").strip()
+        return organisation or "-"

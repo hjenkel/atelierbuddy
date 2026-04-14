@@ -7,7 +7,7 @@ from sqlmodel import Session, select
 
 from ..constants import DEFAULT_COST_TYPE_ICON, DEFAULT_SUBCATEGORY_NAME, default_subcategory_name_for_cost_type
 from ..db import engine
-from ..models import Contact, ContactCategory, CostAllocation, CostSubcategory, CostType, Project, Receipt, Supplier
+from ..models import Contact, ContactCategory, CostAllocation, CostSubcategory, CostType, Order, OrderItem, Project, Receipt, Supplier
 
 
 class MasterDataService:
@@ -330,7 +330,12 @@ class MasterDataService:
         existing_allocation = session.exec(
             select(CostAllocation.id).where(CostAllocation.project_id == project_id).limit(1)
         ).first()
-        return existing_allocation is not None
+        if existing_allocation is not None:
+            return True
+        existing_order_item = session.exec(
+            select(OrderItem.id).where(OrderItem.project_id == project_id).limit(1)
+        ).first()
+        return existing_order_item is not None
 
     def create_or_update_cost_type(self, *, name: str, icon: str) -> tuple[CostType, bool]:
         normalized_name = self._normalize_name(name, label="Name")
@@ -547,9 +552,9 @@ class MasterDataService:
         return used is not None
 
     def _ensure_contact_can_be_deleted(self, session: Session, contact_id: int) -> None:
-        # Future guard rail: when outgoing invoices reference contacts, block deletion here.
-        _ = session
-        _ = contact_id
+        used_order = session.exec(select(Order.id).where(Order.contact_id == contact_id).limit(1)).first()
+        if used_order is not None:
+            raise ValueError("Kontakt wird noch in Verkäufen verwendet und kann nicht gelöscht werden")
 
     def _ensure_contact_category_can_be_deleted(self, session: Session, category_id: int) -> None:
         used_contact = session.exec(select(Contact.id).where(Contact.contact_category_id == category_id)).first()

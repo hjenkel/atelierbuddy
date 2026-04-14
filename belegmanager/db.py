@@ -17,10 +17,10 @@ from .constants import (
     default_subcategory_name_for_cost_type,
 )
 from .fts import init_fts
-from .models import Contact, ContactCategory, CostAllocation, CostArea, CostSubcategory, CostType
+from .models import Contact, ContactCategory, CostAllocation, CostArea, CostSubcategory, CostType, Order, OrderItem
 
 settings.ensure_dirs()
-SCHEMA_VERSION = "v1.5"
+SCHEMA_VERSION = "v1.9"
 SCHEMA_MARKER = settings.data_dir / "schema_version.txt"
 
 engine = create_engine(
@@ -204,6 +204,15 @@ def _seed_defaults(session: Session) -> None:
     session.exec(text("CREATE INDEX IF NOT EXISTS ix_contact_organisation ON contact (organisation)"))
     session.exec(text("CREATE INDEX IF NOT EXISTS ix_contact_email ON contact (email)"))
     session.exec(text("CREATE INDEX IF NOT EXISTS ix_contact_city ON contact (city)"))
+    session.exec(text("CREATE INDEX IF NOT EXISTS ix_sales_order_contact_id ON sales_order (contact_id)"))
+    session.exec(text("CREATE INDEX IF NOT EXISTS ix_sales_order_sale_date ON sales_order (sale_date)"))
+    session.exec(text("CREATE INDEX IF NOT EXISTS ix_sales_order_invoice_date ON sales_order (invoice_date)"))
+    session.exec(text("CREATE INDEX IF NOT EXISTS ix_sales_order_deleted_at ON sales_order (deleted_at)"))
+    session.exec(text("CREATE UNIQUE INDEX IF NOT EXISTS ix_sales_order_internal_number ON sales_order (internal_number)"))
+    session.exec(text("CREATE UNIQUE INDEX IF NOT EXISTS ix_sales_order_invoice_number ON sales_order (invoice_number)"))
+    session.exec(text("CREATE INDEX IF NOT EXISTS ix_sales_order_item_order_id ON sales_order_item (order_id)"))
+    session.exec(text("CREATE INDEX IF NOT EXISTS ix_sales_order_item_project_id ON sales_order_item (project_id)"))
+    session.exec(text("CREATE INDEX IF NOT EXISTS ix_sales_order_item_position ON sales_order_item (position)"))
     session.commit()
 
 
@@ -278,4 +287,9 @@ def _apply_additive_migrations(session: Session) -> None:
         session.commit()
     if contact_columns and "updated_at" not in contact_columns:
         session.exec(text("ALTER TABLE contact ADD COLUMN updated_at TIMESTAMP"))
+        session.commit()
+
+    order_columns = {str(row[1]).strip().casefold() for row in session.exec(text("PRAGMA table_info(sales_order)")).all()}
+    if order_columns and "notes" not in order_columns:
+        session.exec(text("ALTER TABLE sales_order ADD COLUMN notes TEXT"))
         session.commit()

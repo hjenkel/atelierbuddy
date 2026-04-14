@@ -9,6 +9,8 @@ from .services import (
     MasterDataService,
     OCRJobQueue,
     OCRService,
+    OrderSearchService,
+    OrderService,
     ReceiptService,
     ReportService,
     SearchService,
@@ -25,6 +27,8 @@ class ServiceContainer:
     report_service: ReportService
     cost_allocation_service: CostAllocationService
     receipt_service: ReceiptService
+    order_service: OrderService
+    order_search_service: OrderSearchService
     masterdata_service: MasterDataService
 
 
@@ -52,6 +56,8 @@ def get_services() -> ServiceContainer:
         report_service=ReportService(),
         cost_allocation_service=CostAllocationService(),
         receipt_service=ReceiptService(),
+        order_service=OrderService(),
+        order_search_service=OrderSearchService(),
         masterdata_service=MasterDataService(),
     )
     return _state

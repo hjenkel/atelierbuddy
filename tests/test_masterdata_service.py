@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+from datetime import date
+from decimal import Decimal
+
 from sqlmodel import SQLModel, Session, create_engine, select
 
 from belegmanager.constants import DEFAULT_CONTACT_CATEGORY_NAME
 from belegmanager.db import _seed_defaults
-from belegmanager.models import CostAllocation, CostSubcategory, CostType, Project, Receipt, Supplier
+from belegmanager.models import CostAllocation, CostSubcategory, CostType, Order, OrderItem, Project, Receipt, Supplier
 from belegmanager.services.masterdata_service import MasterDataService
 from belegmanager.models import Contact, ContactCategory
 
@@ -256,6 +259,62 @@ def test_contact_create_update_delete_roundtrip() -> None:
         assert session.get(Contact, contact.id) is None
 
 
+def test_delete_contact_rejects_existing_orders() -> None:
+    service, engine = _build_service()
+    category, _ = service.create_or_update_contact_category(name="Interessent / Kunde", icon="handshake")
+    project, _ = service.create_or_update_project(
+        name="Poster",
+        active=True,
+        price_cents=25000,
+        created_on=None,
+    )
+    assert category.id is not None
+    assert project.id is not None
+    contact = service.create_contact(
+        given_name="Alex",
+        family_name="Meyer",
+        organisation=None,
+        email=None,
+        phone=None,
+        mobile=None,
+        primary_link=None,
+        city=None,
+        notes=None,
+        contact_category_id=category.id,
+    )
+    assert contact.id is not None
+
+    with Session(engine) as session:
+        order = Order(
+            internal_number="2026-0001",
+            contact_id=contact.id,
+            sale_date=date(2026, 1, 10),
+        )
+        session.add(order)
+        session.flush()
+        session.add(
+            OrderItem(
+                order_id=order.id or 0,
+                position=1,
+                description="Poster",
+                quantity=Decimal("1.000"),
+                unit_price_cents=25000,
+                project_id=project.id,
+            )
+        )
+        session.commit()
+
+    try:
+        service.delete_contact(contact_id=contact.id)
+    except ValueError as exc:
+        assert "Verkäufen verwendet" in str(exc)
+    else:
+        raise AssertionError("expected ValueError for used contact")
+
+    with Session(engine) as session:
+        assert session.get(Contact, contact.id) is not None
+
+
 def test_project_create_and_update_persists_price() -> None:
     service, engine = _build_service()
     project, created = service.create_or_update_project(
@@ -333,6 +392,59 @@ def test_delete_project_rejects_existing_allocations() -> None:
 
     with Session(engine) as session:
         assert session.get(Project, project.id) is not None
+
+
+def test_delete_project_rejects_existing_order_items() -> None:
+    service, engine = _build_service()
+    category, _ = service.create_or_update_contact_category(name="Interessent / Kunde", icon="handshake")
+    project, _ = service.create_or_update_project(
+        name="Merch",
+        active=True,
+        price_cents=15000,
+        created_on=None,
+    )
+    assert category.id is not None
+    assert project.id is not None
+    contact = service.create_contact(
+        given_name="Lina",
+        family_name="Kern",
+        organisation=None,
+        email=None,
+        phone=None,
+        mobile=None,
+        primary_link=None,
+        city=None,
+        notes=None,
+        contact_category_id=category.id,
+    )
+    assert contact.id is not None
+
+    with Session(engine) as session:
+        order = Order(
+            internal_number="2026-0001",
+            contact_id=contact.id,
+            sale_date=date(2026, 1, 10),
+        )
+        session.add(order)
+        session.flush()
+        session.add(
+            OrderItem(
+                order_id=order.id or 0,
+                position=1,
+                description="Merch",
+                quantity=Decimal("1.000"),
+                unit_price_cents=15000,
+                project_id=project.id,
+            )
+        )
+        session.commit()
+
+    try:
+        service.delete_project(project_id=project.id)
+    except ValueError as exc:
+        assert "Bitte entferne zuerst alle Zuordnungen manuell" in str(exc)
+    else:
+        raise AssertionError("expected ValueError for used project")
 
 
 def test_cost_type_primary_action_deletes_unused_type() -> None:

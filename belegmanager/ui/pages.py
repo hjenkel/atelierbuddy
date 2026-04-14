@@ -25,8 +25,9 @@ from ..constants import (
     DEFAULT_COST_TYPE_ICON,
 )
 from ..db import engine
-from ..models import Contact, ContactCategory, CostAllocation, CostSubcategory, CostType, Project, Receipt, Supplier
-from ..schemas import AllocationInput
+from ..models import Contact, ContactCategory, CostAllocation, CostSubcategory, CostType, Order, OrderItem, Project, Receipt, Supplier
+from ..schemas import AllocationInput, OrderItemInput
+from ..services.order_service import QUANTITY_STEP, order_item_total_cents, order_status_key, order_status_label, order_total_cents
 from ..utils.storage import is_supported_filename, save_uploaded_work_cover, safe_delete_file, to_files_url
 
 DOC_TYPE_INVOICE = "invoice"
@@ -41,6 +42,7 @@ _NAV_STATE = {
 _NAV_CONFIG: list[dict[str, Any]] = [
     {"type": "item", "path": "/", "label": "Dashboard", "icon": "dashboard"},
     {"type": "item", "path": "/belege", "label": "Belege", "icon": "description"},
+    {"type": "item", "path": "/verkaeufe", "label": "Verkäufe", "icon": "receipt_long"},
     {"type": "item", "path": "/kontakte", "label": "Kontakte", "icon": "contacts"},
     {"type": "item", "path": "/projekte", "label": "Projekte", "icon": "palette"},
     {
@@ -69,6 +71,12 @@ _HELP_CONTENT_BY_PATH: dict[str, dict[str, str]] = {
         "body": "Hier landen deine Rechnungen, Bons, Gutschriften und sonstigen Belege. "
         "Du hältst fest, was finanziell passiert ist, und schaffst damit die Grundlage "
         "für Überblick, Ordnung und spätere Auswertungen.",
+    },
+    "/verkaeufe": {
+        "title": "Hilfe · Verkäufe",
+        "body": "Hier pflegst du deine Ausgangsrechnungen und offenen beziehungsweise bezahlten Verkäufe. "
+        "Positionen bleiben bewusst einfach und projektbezogen, damit du sie schnell erfassen und "
+        "später in der Auswertung als Einnahmen wiederfinden kannst.",
     },
     "/projekte": {
         "title": "Hilfe · Projekte",
@@ -293,6 +301,69 @@ def _format_percent(value: float | None) -> str:
     return f"{value:.2f}".replace(".", ",")
 
 
+def _format_cents_input(cents: int | None) -> str:
+    if cents is None:
+        return ""
+    value = (Decimal(cents) / Decimal("100")).quantize(Decimal("0.01"))
+    return format(value, "f").replace(".", ",")
+
+
+def _parse_quantity(value: str | int | float | Decimal | None) -> Decimal | None:
+    if value is None:
+        return None
+    if isinstance(value, Decimal):
+        quantity = value
+    else:
+        text = str(value).strip().replace(" ", "").replace("\u00a0", "").replace(",", ".")
+        if not text:
+            return None
+        try:
+            quantity = Decimal(text)
+        except InvalidOperation as exc:
+            raise ValueError("Ungültige Menge") from exc
+    if quantity.as_tuple().exponent < -3:
+        raise ValueError("Menge darf maximal 3 Nachkommastellen haben")
+    return quantity.quantize(QUANTITY_STEP)
+
+
+def _format_quantity(value: Decimal | None) -> str:
+    if value is None:
+        return ""
+    normalized = format(value.quantize(QUANTITY_STEP), "f")
+    normalized = normalized.rstrip("0").rstrip(".")
+    return (normalized or "0").replace(".", ",")
+
+
+def _normalize_quantity_input(value: str | int | float | Decimal | None) -> str:
+    quantity = _parse_quantity(value)
+    return _format_quantity(quantity)
+
+
+def _normalize_money_input(
+    value: str | int | float | Decimal | None,
+    *,
+    allow_negative: bool = False,
+) -> str:
+    cents = _parse_money_to_cents(value, allow_negative=allow_negative)
+    return _format_cents_input(cents)
+
+
+def _project_values_from_rows(rows: list[dict[str, Any]]) -> set[int | None]:
+    return {int(value) if isinstance(value, int) else None for value in (row.get("project_id") for row in rows)}
+
+
+def _common_project_id_from_rows(rows: list[dict[str, Any]]) -> int | None:
+    project_values = _project_values_from_rows(rows)
+    if len(project_values) != 1:
+        return None
+    only_value = next(iter(project_values))
+    return only_value if isinstance(only_value, int) else None
+
+
+def _uses_position_project_mode(rows: list[dict[str, Any]]) -> bool:
+    return len(_project_values_from_rows(rows)) > 1
+
+
 def _compute_net_cents(gross_cents: int | None, vat_rate_percent: float | None) -> int | None:
     if gross_cents is None:
         return None
@@ -419,6 +490,8 @@ def _shell(active_path: str, title: str):
             "/import"
         ):
             return "bm-context-expenses"
+        if path.startswith("/verkaeufe"):
+            return "bm-context-reports"
         if path.startswith("/projekte"):
             return "bm-context-works"
         if path.startswith("/auswertung"):
@@ -663,6 +736,15 @@ def register_pages(services: ServiceContainer) -> None:
                 stmt = stmt.where(Supplier.active.is_(True))
             suppliers = list(session.exec(stmt).all())
         return {supplier.id: supplier.name for supplier in suppliers if supplier.id is not None}
+
+    def contact_options() -> dict[int, str]:
+        with Session(engine) as session:
+            contacts = list(session.exec(select(Contact).order_by(Contact.family_name, Contact.given_name)).all())
+        return {
+            contact.id: _contact_display_name(contact)
+            for contact in contacts
+            if contact.id is not None
+        }
 
     def contact_category_options() -> dict[int, str]:
         with Session(engine) as session:
@@ -2377,6 +2459,738 @@ def register_pages(services: ServiceContainer) -> None:
                             ui.notify("Beleg gespeichert", type="positive")
                             ui.navigate.to("/belege")
 
+    @ui.page("/verkaeufe")
+    def orders_page() -> None:
+        with _shell("/verkaeufe", "Verkäufe"):
+            with ui.card().classes("bm-card p-4 w-full"):
+                view_mode = "active"
+                filters_visible = False
+                search_task: asyncio.Task | None = None
+
+                with ui.row().classes("w-full items-center justify-between"):
+                    with ui.row().classes("gap-2"):
+                        active_view_button = ui.button("Verkäufe").props("unelevated no-caps").classes(
+                            "bm-view-mode-btn bm-segment-btn"
+                        )
+                        deleted_view_button = ui.button("Gelöschte Verkäufe").props("unelevated no-caps").classes(
+                            "bm-view-mode-btn bm-segment-btn"
+                        )
+                    with ui.row().classes("gap-2"):
+                        filter_toggle_button = ui.button("Filter", icon="filter_alt").props("flat no-caps").classes(
+                            "bm-filter-btn"
+                        )
+                        create_button = ui.button("Verkauf anlegen", icon="add").props(
+                            "color=primary unelevated no-caps"
+                        ).classes("bm-filter-btn bm-toolbar-btn")
+
+                contact_hint = ui.row().classes("w-full items-center gap-2 hidden")
+                with contact_hint:
+                    ui.icon("info")
+                    ui.label("Für neue Verkäufe brauchst du zuerst mindestens einen Kontakt.")
+                    ui.button("Zu Kontakten", on_click=lambda: ui.navigate.to("/kontakte")).props("flat color=primary")
+
+                filter_row = ui.row().classes("w-full bm-filter-row hidden")
+                with filter_row:
+                    query_input = ui.input("Suche").props("clearable").classes("min-w-72 bm-filter-field")
+                    contact_select = ui.select(
+                        {},
+                        label="Kontakte",
+                        multiple=True,
+                        with_input=True,
+                        clearable=True,
+                    ).classes("min-w-56 w-56 bm-filter-field")
+                    contact_select.props("use-chips")
+                    project_select = ui.select(
+                        {},
+                        label="Projekte",
+                        multiple=True,
+                        with_input=True,
+                        clearable=True,
+                    ).classes("min-w-56 w-56 bm-filter-field")
+                    project_select.props("use-chips")
+                    status_select = ui.select(
+                        {
+                            "draft": "Entwurf",
+                            "invoiced": "Abgerechnet",
+                        },
+                        label="Status",
+                        multiple=True,
+                        clearable=True,
+                    ).classes("min-w-56 w-56 bm-filter-field")
+                    status_select.props("use-chips")
+                    date_from_input = ui.input("Verkaufsdatum von").props("type=date clearable").classes(
+                        "w-44 bm-filter-field"
+                    )
+                    date_to_input = ui.input("Verkaufsdatum bis").props("type=date clearable").classes(
+                        "w-44 bm-filter-field"
+                    )
+                    ui.button("Filter löschen", icon="close", on_click=lambda: clear_filters()).props("flat").classes(
+                        "bm-filter-btn"
+                    )
+
+                results_column = ui.column().classes("w-full gap-3")
+
+                def open_detail_page(order_id: int) -> None:
+                    if order_id <= 0:
+                        return
+                    ui.navigate.to(f"/verkaeufe/{order_id}")
+
+                def apply_view_button_styles() -> None:
+                    active_view_button.classes(remove="bm-segment-btn--active bm-segment-btn--inactive")
+                    deleted_view_button.classes(remove="bm-segment-btn--active bm-segment-btn--inactive")
+                    if view_mode == "active":
+                        active_view_button.classes(add="bm-segment-btn--active")
+                        deleted_view_button.classes(add="bm-segment-btn--inactive")
+                    else:
+                        active_view_button.classes(add="bm-segment-btn--inactive")
+                        deleted_view_button.classes(add="bm-segment-btn--active")
+
+                def set_view_mode(next_mode: str) -> None:
+                    nonlocal view_mode
+                    if next_mode == view_mode:
+                        return
+                    view_mode = next_mode
+                    apply_view_button_styles()
+                    render_results()
+
+                def schedule_render(delay_seconds: float = 0.25) -> None:
+                    nonlocal search_task
+                    if search_task and not search_task.done():
+                        search_task.cancel()
+
+                    async def delayed() -> None:
+                        try:
+                            await asyncio.sleep(delay_seconds)
+                        except asyncio.CancelledError:
+                            return
+                        render_results()
+
+                    search_task = asyncio.create_task(delayed())
+
+                def clear_filters() -> None:
+                    query_input.value = ""
+                    contact_select.value = []
+                    project_select.value = []
+                    status_select.value = []
+                    date_from_input.value = ""
+                    date_to_input.value = ""
+                    render_results()
+
+                def apply_filter_visibility() -> None:
+                    filter_row.classes(remove="hidden")
+                    filter_toggle_button.classes(remove="bm-segment-btn--active bm-segment-btn--inactive")
+                    if filters_visible:
+                        filter_toggle_button.classes(add="bm-segment-btn bm-segment-btn--active")
+                    else:
+                        filter_row.classes(add="hidden")
+                        filter_toggle_button.classes(add="bm-segment-btn bm-segment-btn--inactive")
+
+                def toggle_filters() -> None:
+                    nonlocal filters_visible
+                    filters_visible = not filters_visible
+                    apply_filter_visibility()
+
+                def refresh_filter_options() -> None:
+                    contact_map = contact_options()
+                    project_map = project_options(active_only=False)
+                    current_contacts = [item for item in _to_int_list(contact_select.value) if item in contact_map]
+                    current_projects = [item for item in _to_int_list(project_select.value) if item in project_map]
+                    contact_select.set_options(contact_map, value=current_contacts)
+                    project_select.set_options(project_map, value=current_projects)
+                    has_contacts = bool(contact_map)
+                    contact_hint.classes(remove="hidden")
+                    if has_contacts:
+                        contact_hint.classes(add="hidden")
+                        create_button.enable()
+                    else:
+                        create_button.disable()
+                        if view_mode == "deleted":
+                            contact_hint.classes(add="hidden")
+
+                def open_create_order_dialog() -> None:
+                    contact_map = contact_options()
+                    if not contact_map:
+                        ui.notify("Bitte zuerst mindestens einen Kontakt anlegen", type="warning")
+                        ui.navigate.to("/kontakte")
+                        return
+
+                    with ui.dialog() as dialog, ui.card().classes("p-4 w-[560px] max-w-full"):
+                        ui.label("Neuer Verkauf").classes("text-lg font-semibold")
+                        contact_input = ui.select(contact_map, value=next(iter(contact_map)), label="Kontakt").classes(
+                            "w-full"
+                        )
+                        sale_date_input = ui.input("Verkaufsdatum", value=date.today().isoformat()).props(
+                            "type=date"
+                        ).classes("w-full")
+
+                        def create_order() -> None:
+                            contact_id = contact_input.value
+                            if not isinstance(contact_id, int):
+                                ui.notify("Kontakt fehlt", type="negative")
+                                return
+                            try:
+                                order = services.order_service.create_order(
+                                    contact_id=contact_id,
+                                    sale_date=_parse_iso_date(sale_date_input.value),
+                                )
+                            except Exception as exc:
+                                _notify_error("Verkauf konnte nicht angelegt werden", exc)
+                                return
+                            dialog.close()
+                            ui.navigate.to(f"/verkaeufe/{order.id}")
+
+                        with ui.row().classes("w-full justify-end gap-2"):
+                            ui.button("Abbrechen", on_click=dialog.close).props("flat")
+                            ui.button("Anlegen", on_click=create_order).props("color=primary")
+                    dialog.open()
+
+                def hard_delete_order(order_id: int, rerender: Callable[[], None]) -> None:
+                    with ui.dialog() as dialog, ui.card().classes("p-4 max-w-lg"):
+                        ui.label("Verkauf endgültig löschen?").classes("text-lg font-semibold")
+                        ui.label("Positionen und Kopfdaten werden dauerhaft entfernt.")
+                        with ui.row().classes("w-full justify-end gap-2"):
+                            ui.button("Abbrechen", on_click=dialog.close).props("flat")
+
+                            def execute_delete() -> None:
+                                try:
+                                    services.order_service.hard_delete(order_id)
+                                    ui.notify("Verkauf endgültig gelöscht", type="positive")
+                                except Exception as exc:
+                                    _notify_error("Endgültiges Löschen fehlgeschlagen", exc)
+                                    return
+                                dialog.close()
+                                rerender()
+
+                            ui.button("Endgültig löschen", on_click=execute_delete).props("color=negative")
+                    dialog.open()
+
+                def move_to_deleted(order_id: int) -> None:
+                    if order_id <= 0:
+                        return
+                    try:
+                        services.order_service.move_to_trash(order_id)
+                        ui.notify("Verkauf in Gelöschte Verkäufe verschoben", type="positive")
+                    except Exception as exc:
+                        _notify_error("Löschen fehlgeschlagen", exc)
+                        return
+                    render_results()
+
+                def restore_order(order_id: int) -> None:
+                    if order_id <= 0:
+                        return
+                    try:
+                        services.order_service.restore_from_trash(order_id)
+                        ui.notify("Verkauf wiederhergestellt", type="positive")
+                    except Exception as exc:
+                        _notify_error("Wiederherstellung fehlgeschlagen", exc)
+                        return
+                    render_results()
+
+                def render_results() -> None:
+                    refresh_filter_options()
+                    results_column.clear()
+                    deleted_view = view_mode == "deleted"
+                    orders = services.order_search_service.search(
+                        query=(query_input.value or "").strip(),
+                        contact_ids=_to_int_list(contact_select.value),
+                        project_ids=_to_int_list(project_select.value),
+                        statuses=[str(item) for item in (status_select.value or [])],
+                        date_from=_parse_iso_date(date_from_input.value),
+                        date_to=_parse_iso_date(date_to_input.value),
+                        deleted_only=deleted_view,
+                    )
+
+                    with results_column:
+                        if not orders:
+                            label = (
+                                "Keine gelöschten Verkäufe gefunden."
+                                if deleted_view
+                                else "Keine Verkäufe für die aktuellen Filter gefunden."
+                            )
+                            with ui.card().classes("bm-card p-4"):
+                                ui.label(label)
+                            return
+
+                        rows: list[dict[str, Any]] = []
+                        for order in orders:
+                            status_key = order_status_key(order)
+                            locked = order.invoice_date is not None or bool((order.invoice_number or "").strip())
+                            rows.append(
+                                {
+                                    "id": order.id,
+                                    "internal_number": order.internal_number,
+                                    "invoice_number": order.invoice_number or "-",
+                                    "contact": _contact_display_name(order.contact) if order.contact else "-",
+                                    "sale_date": order.sale_date.isoformat(),
+                                    "invoice_date": order.invoice_date.isoformat() if order.invoice_date else "-",
+                                    "status": order_status_label(order),
+                                    "status_color": {
+                                        "draft": "grey-6",
+                                        "invoiced": "warning",
+                                    }[status_key],
+                                    "total": _format_cents(order_total_cents(order.items), settings.default_currency),
+                                    "deleted": bool(order.deleted_at),
+                                    "locked": locked,
+                                }
+                            )
+
+                        columns = [
+                            {
+                                "name": "internal_number",
+                                "label": "Verkaufsnummer",
+                                "field": "internal_number",
+                                "align": "left",
+                                "sortable": True,
+                            },
+                            {"name": "invoice_number", "label": "Rechnungsnummer", "field": "invoice_number", "align": "left"},
+                            {"name": "contact", "label": "Kontakt", "field": "contact", "align": "left", "sortable": True},
+                            {"name": "sale_date", "label": "Verkaufsdatum", "field": "sale_date", "align": "left", "sortable": True},
+                            {"name": "invoice_date", "label": "Rechnungsdatum", "field": "invoice_date", "align": "left", "sortable": True},
+                            {"name": "status", "label": "Status", "field": "status", "align": "left"},
+                            {"name": "total", "label": f"Gesamt ({settings.default_currency})", "field": "total", "align": "right"},
+                            {"name": "actions", "label": "Aktionen", "field": "actions", "align": "right"},
+                        ]
+                        table = _erp_table(columns=columns, rows=rows, row_key="id", rows_per_page=25)
+                        table.add_slot(
+                            "body-cell-status",
+                            """
+                            <q-td :props="props">
+                              <q-badge :color="props.row.status_color">
+                                {{ props.row.status }}
+                              </q-badge>
+                            </q-td>
+                            """,
+                        )
+                        table.add_slot(
+                            "body-cell-actions",
+                            """
+                            <q-td :props="props" class="text-right">
+                              <q-btn flat round dense icon="more_vert" @click.stop>
+                                <q-menu auto-close>
+                                  <q-list dense style="min-width: 220px">
+                                    <q-item clickable @click="$parent.$emit('detail_action', props.row)">
+                                      <q-item-section avatar><q-icon name="visibility" /></q-item-section>
+                                      <q-item-section><q-item-label>Details anzeigen</q-item-label></q-item-section>
+                                    </q-item>
+                                    <q-item v-if="!props.row.deleted && !props.row.locked" clickable @click="$parent.$emit('delete_action', props.row)">
+                                      <q-item-section avatar><q-icon name="delete_outline" color="negative" /></q-item-section>
+                                      <q-item-section><q-item-label>In Gelöschte Verkäufe</q-item-label></q-item-section>
+                                    </q-item>
+                                    <q-item v-if="props.row.deleted" clickable @click="$parent.$emit('restore_action', props.row)">
+                                      <q-item-section avatar><q-icon name="restore_from_trash" /></q-item-section>
+                                      <q-item-section><q-item-label>Wiederherstellen</q-item-label></q-item-section>
+                                    </q-item>
+                                    <q-item v-if="props.row.deleted" clickable @click="$parent.$emit('hard_delete_action', props.row)">
+                                      <q-item-section avatar><q-icon name="delete_forever" color="negative" /></q-item-section>
+                                      <q-item-section><q-item-label>Endgültig löschen</q-item-label></q-item-section>
+                                    </q-item>
+                                  </q-list>
+                                </q-menu>
+                              </q-btn>
+                            </q-td>
+                            """,
+                        )
+                        table.on("detail_action", lambda e: open_detail_page(_extract_row_id(e) or -1))
+                        table.on("delete_action", lambda e: move_to_deleted(_extract_row_id(e) or -1))
+                        table.on("restore_action", lambda e: restore_order(_extract_row_id(e) or -1))
+                        table.on(
+                            "hard_delete_action",
+                            lambda e: hard_delete_order(_extract_row_id(e) or -1, render_results),
+                        )
+                        table.on("rowClick", lambda e: open_detail_page(_extract_row_id(e) or -1))
+
+                query_input.on("update:model-value", lambda _: schedule_render(0.35))
+                query_input.on("keydown.enter", lambda _: render_results())
+                contact_select.on_value_change(lambda _: schedule_render(0.05))
+                project_select.on_value_change(lambda _: schedule_render(0.05))
+                status_select.on_value_change(lambda _: schedule_render(0.05))
+                date_from_input.on("update:model-value", lambda _: schedule_render(0.05))
+                date_to_input.on("update:model-value", lambda _: schedule_render(0.05))
+
+                active_view_button.on("click", lambda _: set_view_mode("active"))
+                deleted_view_button.on("click", lambda _: set_view_mode("deleted"))
+                filter_toggle_button.on("click", lambda _: toggle_filters())
+                create_button.on("click", lambda _: open_create_order_dialog())
+                apply_view_button_styles()
+                apply_filter_visibility()
+                refresh_filter_options()
+                render_results()
+
+    @ui.page("/verkaeufe/{order_id}")
+    def order_detail_page(order_id: str) -> None:
+        try:
+            oid = int(order_id)
+        except ValueError:
+            oid = -1
+
+        with _shell("/verkaeufe", "Verkaufsdetail"):
+            if oid <= 0:
+                with ui.card().classes("bm-card p-4 w-full"):
+                    ui.label("Ungültige Verkaufs-ID")
+                return
+
+            with Session(engine) as session:
+                order = session.exec(
+                    select(Order)
+                    .where(Order.id == oid)
+                    .options(
+                        selectinload(Order.contact),
+                        selectinload(Order.items).selectinload(OrderItem.project),
+                    )
+                ).first()
+                contacts = list(session.exec(select(Contact).order_by(Contact.family_name, Contact.given_name)).all())
+
+                selected_project_ids: list[int] = []
+                if order:
+                    selected_project_ids = sorted({item.project_id for item in order.items if isinstance(item.project_id, int)})
+                projects = list(
+                    session.exec(
+                        select(Project)
+                        .where(or_(Project.active.is_(True), Project.id.in_(selected_project_ids)))
+                        .order_by(Project.name)
+                    ).all()
+                )
+
+            if not order:
+                with ui.card().classes("bm-card p-4 w-full"):
+                    ui.label("Verkauf nicht gefunden")
+                return
+
+            contact_map = {contact.id: _contact_display_name(contact) for contact in contacts if contact.id is not None}
+            project_map = {project.id: project.name for project in projects if project.id is not None}
+            is_deleted = order.deleted_at is not None
+            is_locked_for_delete = order.invoice_date is not None or bool((order.invoice_number or "").strip())
+
+            item_rows: list[dict[str, Any]] = []
+            if order.items:
+                for item in sorted(order.items, key=lambda current: current.position):
+                    item_rows.append(
+                        {
+                            "description": item.description,
+                            "quantity_text": _format_quantity(item.quantity),
+                            "unit_price_text": ""
+                            if item.unit_price_cents is None
+                            else f"{(Decimal(item.unit_price_cents) / Decimal('100')):.2f}".replace(".", ","),
+                            "project_id": item.project_id,
+                        }
+                    )
+            if not item_rows:
+                item_rows.append({"description": "", "quantity_text": "1", "unit_price_text": "", "project_id": None})
+            project_mode_enabled = _uses_position_project_mode(item_rows)
+
+            with ui.card().classes("bm-card p-4 w-full gap-4"):
+                with ui.row().classes("bm-detail-toolbar w-full items-center justify-between"):
+                    with ui.row().classes("items-center gap-2"):
+                        back_btn = ui.button(
+                            icon="close",
+                            on_click=lambda: ui.navigate.to("/verkaeufe"),
+                        ).props("flat round dense").classes("bm-icon-action-btn")
+                        back_btn.tooltip("Zurück zu Verkäufen")
+                    with ui.row().classes("items-center gap-2"):
+                        if not is_deleted and not is_locked_for_delete:
+                            delete_btn = ui.button(
+                                icon="delete_outline",
+                                on_click=lambda: _detail_move_to_deleted(),
+                            ).props("flat round dense").classes("bm-icon-action-btn bm-icon-action-btn--danger")
+                            delete_btn.tooltip("In Gelöschte Verkäufe")
+                        if not is_deleted:
+                            save_btn = ui.button(
+                                icon="save",
+                                on_click=lambda: _save_order(),
+                            ).props("flat round dense").classes("bm-icon-action-btn bm-icon-action-btn--primary")
+                            save_btn.tooltip("Speichern")
+                        else:
+                            restore_btn = ui.button(
+                                icon="restore_from_trash",
+                                on_click=lambda: _detail_restore(),
+                            ).props("flat round dense").classes("bm-icon-action-btn bm-icon-action-btn--success")
+                            restore_btn.tooltip("Wiederherstellen")
+
+                ui.label(f"Verkauf {order.internal_number}").classes("text-xl font-semibold")
+
+                with ui.row().classes("w-full gap-3 wrap"):
+                    contact_input = ui.select(contact_map, value=order.contact_id, label="Kontakt").classes(
+                        "min-w-[260px] flex-1"
+                    )
+                    sale_date_input = ui.input("Verkaufsdatum", value=order.sale_date.isoformat()).props("type=date").classes(
+                        "w-44"
+                    )
+                    invoice_date_input = ui.input(
+                        "Rechnungsdatum",
+                        value=order.invoice_date.isoformat() if order.invoice_date else "",
+                    ).props("type=date clearable").classes("w-44")
+                    invoice_number_input = ui.input(
+                        "Rechnungsnummer",
+                        value=order.invoice_number or "",
+                    ).classes("min-w-[220px] flex-1")
+
+                with ui.row().classes("w-full gap-3 wrap items-end"):
+                    internal_number_input = ui.input("Interne Verkaufsnummer", value=order.internal_number).props(
+                        "readonly"
+                    ).classes("min-w-[220px] flex-1")
+                    with ui.row().classes("items-center gap-2"):
+                        project_mode_input = ui.switch("Projekt je Position", value=project_mode_enabled).classes(
+                            "bm-inline-switch"
+                        )
+                        project_mode_input.props("dense color=primary size=sm")
+                    head_project_container = ui.row().classes("min-w-[260px] flex-1")
+                    with head_project_container:
+                        head_project_input = ui.select(
+                            project_map,
+                            value=None,
+                            label="Projekt für alle Positionen",
+                            clearable=True,
+                        ).classes("w-full")
+                    total_preview = ui.input("Gesamt", value="-").props("readonly").classes("w-48")
+                    status_preview = ui.input("Status", value=order_status_label(order)).props("readonly").classes("w-40")
+
+                notes_input = ui.textarea("Notiz", value=order.notes or "").classes("w-full")
+                item_editor = ui.column().classes("w-full gap-2")
+
+                def parse_row_total_cents(row: dict[str, Any]) -> int | None:
+                    try:
+                        quantity = _parse_quantity(row.get("quantity_text"))
+                        unit_price_cents = _parse_money_to_cents(row.get("unit_price_text"), allow_negative=True)
+                    except ValueError:
+                        return None
+                    if quantity is None or unit_price_cents is None:
+                        return None
+                    return order_item_total_cents(quantity, unit_price_cents)
+
+                def refresh_total_preview() -> None:
+                    payload: list[OrderItemInput] = []
+                    for index, row in enumerate(item_rows, start=1):
+                        description = (row.get("description") or "").strip()
+                        if not description and not (row.get("quantity_text") or "").strip() and not (row.get("unit_price_text") or "").strip():
+                            continue
+                        try:
+                            quantity = _parse_quantity(row.get("quantity_text"))
+                            unit_price_cents = _parse_money_to_cents(row.get("unit_price_text"), allow_negative=True)
+                        except ValueError:
+                            total_preview.value = "Ungültige Position"
+                            status_preview.value = current_status_label()
+                            return
+                        if quantity is None or unit_price_cents is None:
+                            total_preview.value = "Ungültige Position"
+                            status_preview.value = current_status_label()
+                            return
+                        payload.append(
+                            OrderItemInput(
+                                description=description,
+                                quantity=quantity,
+                                unit_price_cents=unit_price_cents,
+                                project_id=int(row.get("project_id")) if row.get("project_id") else None,
+                                position=index,
+                            )
+                        )
+                    total_preview.value = _format_cents(order_total_cents(payload), settings.default_currency) if payload else "-"
+                    status_preview.value = current_status_label()
+                    head_project_input.value = _common_project_id_from_rows(item_rows)
+
+                def current_status_label() -> str:
+                    if _parse_iso_date(invoice_date_input.value):
+                        return "Abgerechnet"
+                    return "Entwurf"
+
+                def apply_project_mode_visibility() -> None:
+                    head_project_container.classes(remove="hidden")
+                    if bool(project_mode_input.value):
+                        head_project_container.classes(add="hidden")
+
+                def render_item_row(row: dict[str, Any]) -> None:
+                    with ui.card().classes("bm-card p-3 w-full"):
+                        with ui.row().classes("w-full items-end gap-3 wrap"):
+                            description_input = ui.input("Bezeichnung", value=row.get("description") or "").classes(
+                                "min-w-[280px] grow"
+                            )
+                            quantity_input = ui.input("Menge", value=row.get("quantity_text") or "").classes("w-28")
+                            unit_price_input = ui.input(
+                                f"Einzelpreis ({settings.default_currency})",
+                                value=row.get("unit_price_text") or "",
+                            ).classes("w-40")
+                            total_label = ui.input(
+                                "Gesamt",
+                                value="-",
+                            ).props("readonly").classes("w-40")
+                            project_input = ui.select(
+                                project_map,
+                                value=row.get("project_id"),
+                                label="Projekt",
+                                clearable=True,
+                            ).classes("min-w-[220px] grow")
+                            remove_button = ui.button(
+                                icon="delete_outline",
+                                on_click=lambda current=row: remove_row(current),
+                            ).props("flat round color=negative")
+                            remove_button.tooltip("Position entfernen")
+
+                        project_input.classes(remove="hidden")
+                        if not bool(project_mode_input.value):
+                            project_input.classes(add="hidden")
+
+                        def update_total_label() -> None:
+                            total_cents = parse_row_total_cents(row)
+                            total_label.value = (
+                                _format_cents(total_cents, settings.default_currency) if total_cents is not None else "-"
+                            )
+
+                        def on_description_change() -> None:
+                            row["description"] = description_input.value or ""
+                            refresh_total_preview()
+
+                        def on_quantity_change() -> None:
+                            row["quantity_text"] = quantity_input.value or ""
+                            update_total_label()
+                            refresh_total_preview()
+
+                        def normalize_quantity_on_blur() -> None:
+                            try:
+                                quantity_input.value = _normalize_quantity_input(quantity_input.value)
+                            except ValueError:
+                                return
+                            row["quantity_text"] = quantity_input.value or ""
+                            update_total_label()
+                            refresh_total_preview()
+
+                        def on_unit_price_change() -> None:
+                            row["unit_price_text"] = unit_price_input.value or ""
+                            update_total_label()
+                            refresh_total_preview()
+
+                        def normalize_unit_price_on_blur() -> None:
+                            try:
+                                unit_price_input.value = _normalize_money_input(
+                                    unit_price_input.value,
+                                    allow_negative=True,
+                                )
+                            except ValueError:
+                                return
+                            row["unit_price_text"] = unit_price_input.value or ""
+                            update_total_label()
+                            refresh_total_preview()
+
+                        def on_project_change() -> None:
+                            row["project_id"] = int(project_input.value) if project_input.value else None
+                            refresh_total_preview()
+
+                        description_input.on("update:model-value", lambda _: on_description_change())
+                        quantity_input.on("update:model-value", lambda _: on_quantity_change())
+                        quantity_input.on("blur", lambda _: normalize_quantity_on_blur())
+                        unit_price_input.on("update:model-value", lambda _: on_unit_price_change())
+                        unit_price_input.on("blur", lambda _: normalize_unit_price_on_blur())
+                        project_input.on_value_change(lambda _: on_project_change())
+                        update_total_label()
+
+                def render_item_editor() -> None:
+                    item_editor.clear()
+                    with item_editor:
+                        with ui.row().classes("w-full items-center justify-between"):
+                            ui.label("Positionen").classes("text-sm font-semibold")
+                            ui.button("Position hinzufügen", icon="add", on_click=lambda: add_row()).props("flat")
+
+                        for row in item_rows:
+                            render_item_row(row)
+
+                def add_row() -> None:
+                    item_rows.append({"description": "", "quantity_text": "1", "unit_price_text": "", "project_id": None})
+                    render_item_editor()
+                    refresh_total_preview()
+
+                def remove_row(row: dict[str, Any]) -> None:
+                    if len(item_rows) == 1:
+                        item_rows[0] = {"description": "", "quantity_text": "1", "unit_price_text": "", "project_id": None}
+                    else:
+                        item_rows.remove(row)
+                    render_item_editor()
+                    refresh_total_preview()
+
+                def build_item_payload() -> list[OrderItemInput]:
+                    payload: list[OrderItemInput] = []
+                    for index, row in enumerate(item_rows, start=1):
+                        description = (row.get("description") or "").strip()
+                        quantity_text = str(row.get("quantity_text") or "").strip()
+                        unit_price_text = str(row.get("unit_price_text") or "").strip()
+                        project_value = row.get("project_id")
+                        if not description and not quantity_text and not unit_price_text and not project_value:
+                            continue
+                        quantity = _parse_quantity(quantity_text)
+                        unit_price_cents = _parse_money_to_cents(unit_price_text, allow_negative=True)
+                        if quantity is None:
+                            raise ValueError(f"Menge fehlt in Position {index}")
+                        if unit_price_cents is None:
+                            raise ValueError(f"Einzelpreis fehlt in Position {index}")
+                        payload.append(
+                            OrderItemInput(
+                                description=description,
+                                quantity=quantity,
+                                unit_price_cents=unit_price_cents,
+                                project_id=int(project_value) if project_value else None,
+                                position=index,
+                            )
+                        )
+                    return payload
+
+                def _save_order() -> None:
+                    contact_id = contact_input.value
+                    if not isinstance(contact_id, int):
+                        ui.notify("Kontakt fehlt", type="negative")
+                        return
+                    try:
+                        saved = services.order_service.save_order(
+                            order_id=oid,
+                            contact_id=contact_id,
+                            sale_date=_parse_iso_date(sale_date_input.value),
+                            invoice_date=_parse_iso_date(invoice_date_input.value),
+                            invoice_number=invoice_number_input.value,
+                            notes=notes_input.value,
+                            items=build_item_payload(),
+                        )
+                    except Exception as exc:
+                        _notify_error("Verkauf konnte nicht gespeichert werden", exc)
+                        return
+                    ui.notify("Verkauf gespeichert", type="positive")
+                    ui.navigate.to(f"/verkaeufe/{saved.id}")
+
+                def _detail_move_to_deleted() -> None:
+                    try:
+                        services.order_service.move_to_trash(oid)
+                    except Exception as exc:
+                        _notify_error("Löschen fehlgeschlagen", exc)
+                        return
+                    ui.notify("Verkauf in Gelöschte Verkäufe verschoben", type="positive")
+                    ui.navigate.to("/verkaeufe")
+
+                def _detail_restore() -> None:
+                    try:
+                        services.order_service.restore_from_trash(oid)
+                    except Exception as exc:
+                        _notify_error("Wiederherstellung fehlgeschlagen", exc)
+                        return
+                    ui.notify("Verkauf wiederhergestellt", type="positive")
+                    ui.navigate.to(f"/verkaeufe/{oid}")
+
+                def apply_head_project() -> None:
+                    if bool(project_mode_input.value):
+                        return
+                    selected_project_id = head_project_input.value
+                    for row in item_rows:
+                        row["project_id"] = int(selected_project_id) if isinstance(selected_project_id, int) else None
+                    render_item_editor()
+                    refresh_total_preview()
+
+                def on_project_mode_change() -> None:
+                    apply_project_mode_visibility()
+                    render_item_editor()
+                    refresh_total_preview()
+
+                head_project_input.value = _common_project_id_from_rows(item_rows)
+                head_project_input.on_value_change(lambda _: apply_head_project())
+                project_mode_input.on("update:model-value", lambda _: on_project_mode_change())
+                invoice_date_input.on("update:model-value", lambda _: refresh_total_preview())
+                apply_project_mode_visibility()
+                render_item_editor()
+                refresh_total_preview()
+
     @ui.page("/projekte")
     def projects_page() -> None:
         with _shell("/projekte", "Projekte"):
@@ -3677,6 +4491,8 @@ def register_pages(services: ServiceContainer) -> None:
                 month_start = today.replace(day=1)
                 selected_cost_type_id: int | None = None
                 selected_cost_type_name: str | None = None
+                selected_income_project_id: int | None = None
+                selected_income_project_name: str | None = None
                 with ui.row().classes("w-full items-end gap-2"):
                     date_from = ui.input("Startdatum", value=month_start.isoformat()).props("type=date clearable").classes(
                         "w-44 bm-filter-field"
@@ -3690,6 +4506,9 @@ def register_pages(services: ServiceContainer) -> None:
                 summary_container = ui.column().classes("w-full gap-2")
                 categories_container = ui.column().classes("w-full gap-2")
                 subcategories_container = ui.column().classes("w-full gap-2")
+                income_summary_container = ui.column().classes("w-full gap-2")
+                income_projects_container = ui.column().classes("w-full gap-2")
+                income_orders_container = ui.column().classes("w-full gap-2")
 
                 def amount_state(total_cents: int) -> tuple[str, str]:
                     if total_cents > 0:
@@ -3697,6 +4516,13 @@ def register_pages(services: ServiceContainer) -> None:
                     if total_cents < 0:
                         return "Einnahme", "bm-amount-income"
                     return "Neutral", "bm-amount-neutral"
+
+                def income_amount_class(total_cents: int) -> str:
+                    if total_cents > 0:
+                        return "bm-amount-income"
+                    if total_cents < 0:
+                        return "bm-amount-expense"
+                    return "bm-amount-neutral"
 
                 def render_subcategories(current_from: date, current_to: date) -> None:
                     subcategories_container.clear()
@@ -3749,10 +4575,143 @@ def register_pages(services: ServiceContainer) -> None:
                             """,
                         )
 
+                def render_income_orders(current_from: date, current_to: date) -> None:
+                    income_orders_container.clear()
+                    with income_orders_container:
+                        if not selected_income_project_id:
+                            with ui.card().classes("bm-card p-3"):
+                                ui.label("Für den Einnahmen-Drilldown bitte ein Projekt auswählen.")
+                            return
+
+                        rows_raw = services.report_service.build_income_order_breakdown(
+                            date_from=current_from,
+                            date_to=current_to,
+                            project_id=selected_income_project_id,
+                        )
+                        title = selected_income_project_name or "Ausgewähltes Projekt"
+                        ui.label(f"Abgerechnete Verkäufe zu: {title}").classes("text-base font-semibold bm-report-title")
+                        if not rows_raw:
+                            with ui.card().classes("bm-card p-3"):
+                                ui.label("Keine abgerechneten Verkäufe im Zeitraum.")
+                            return
+
+                        rows = [
+                            {
+                                "id": item.order_id,
+                                "internal_number": item.internal_number,
+                                "contact": item.contact_name,
+                                "invoice_date": item.invoice_date.isoformat(),
+                                "total": _format_cents(item.total_cents, settings.default_currency),
+                                "total_class": income_amount_class(item.total_cents),
+                            }
+                            for item in rows_raw
+                        ]
+                        columns = [
+                            {"name": "internal_number", "label": "Verkaufsnummer", "field": "internal_number", "align": "left"},
+                            {"name": "contact", "label": "Kontakt", "field": "contact", "align": "left"},
+                            {"name": "invoice_date", "label": "Rechnungsdatum", "field": "invoice_date", "align": "left"},
+                            {
+                                "name": "total",
+                                "label": f"Projektanteil ({settings.default_currency})",
+                                "field": "total",
+                                "align": "right",
+                            },
+                        ]
+                        table = _erp_table(columns=columns, rows=rows, row_key="id", rows_per_page=20)
+                        table.add_slot(
+                            "body-cell-total",
+                            """
+                            <q-td :props="props" class="text-right">
+                              <span :class="props.row.total_class">{{ props.row.total }}</span>
+                            </q-td>
+                            """,
+                        )
+                        table.on("rowClick", lambda event: ui.navigate.to(f"/verkaeufe/{_extract_row_id(event) or -1}"))
+
+                def render_income_report(current_from: date, current_to: date) -> None:
+                    nonlocal selected_income_project_id, selected_income_project_name
+                    income_summary_container.clear()
+                    income_projects_container.clear()
+                    income_orders_container.clear()
+
+                    income_report = services.report_service.build_income_summary(current_from, current_to)
+                    with income_summary_container:
+                        with ui.card().classes("bm-card p-3"):
+                            ui.label("Abgerechnete Verkäufe").classes("text-sm font-semibold")
+                            ui.label(_format_cents(income_report.overall_total_cents, settings.default_currency)).classes(
+                                f"text-2xl font-bold {income_amount_class(income_report.overall_total_cents)}"
+                            )
+                            ui.label(
+                                f"Auswertung nach Rechnungsdatum · {income_report.order_count} abgerechnete Verkäufe"
+                            ).classes("text-xs text-slate-600")
+
+                    with income_projects_container:
+                        ui.label("Einnahmen je Projekt").classes("text-base font-semibold bm-report-title")
+                        if not income_report.totals_by_project:
+                            with ui.card().classes("bm-card p-3"):
+                                ui.label("Keine abgerechneten Verkäufe im Zeitraum.")
+                            selected_income_project_id = None
+                            selected_income_project_name = None
+                            return
+
+                        project_name_by_id = {
+                            item.project_id: item.project_name for item in income_report.totals_by_project
+                        }
+                        if selected_income_project_id not in project_name_by_id:
+                            selected_income_project_id = income_report.totals_by_project[0].project_id
+                            selected_income_project_name = income_report.totals_by_project[0].project_name
+
+                        rows = [
+                            {
+                                "id": item.project_id,
+                                "name": item.project_name,
+                                "total": _format_cents(item.total_cents, settings.default_currency),
+                                "total_class": income_amount_class(item.total_cents),
+                            }
+                            for item in income_report.totals_by_project
+                        ]
+                        columns = [
+                            {"name": "name", "label": "Projekt", "field": "name", "align": "left", "sortable": True},
+                            {
+                                "name": "total",
+                                "label": f"Summe ({settings.default_currency})",
+                                "field": "total",
+                                "align": "right",
+                                "sortable": True,
+                            },
+                        ]
+                        table = _erp_table(columns=columns, rows=rows, row_key="id", rows_per_page=20)
+                        table.add_slot(
+                            "body-cell-total",
+                            """
+                            <q-td :props="props" class="text-right">
+                              <span :class="props.row.total_class">{{ props.row.total }}</span>
+                            </q-td>
+                            """,
+                        )
+
+                        def on_income_project_click(event: events.GenericEventArguments) -> None:
+                            nonlocal selected_income_project_id, selected_income_project_name
+                            project_id_raw = _extract_row_id(event)
+                            if project_id_raw is None:
+                                return
+                            project_id = int(project_id_raw)
+                            if project_id < 0 or project_id not in project_name_by_id:
+                                return
+                            selected_income_project_id = project_id
+                            selected_income_project_name = project_name_by_id[project_id]
+                            render_income_orders(current_from, current_to)
+
+                        table.on("rowClick", on_income_project_click)
+                        render_income_orders(current_from, current_to)
+
                 def render_report() -> None:
                     nonlocal selected_cost_type_id, selected_cost_type_name
                     summary_container.clear()
                     categories_container.clear()
+                    income_summary_container.clear()
+                    income_projects_container.clear()
+                    income_orders_container.clear()
 
                     from_value = _parse_iso_date(str(date_from.value or ""))
                     to_value = _parse_iso_date(str(date_to.value or ""))
@@ -3762,11 +4721,13 @@ def register_pages(services: ServiceContainer) -> None:
                             with ui.card().classes("bm-card p-3"):
                                 ui.label("Bitte Startdatum und Enddatum eingeben.")
                             subcategories_container.clear()
+                            income_orders_container.clear()
                             return
                         if from_value > to_value:
                             with ui.card().classes("bm-card p-3"):
                                 ui.label("Startdatum darf nicht nach dem Enddatum liegen.")
                             subcategories_container.clear()
+                            income_orders_container.clear()
                             return
 
                         report = services.report_service.build_summary(from_value, to_value)
@@ -3791,57 +4752,67 @@ def register_pages(services: ServiceContainer) -> None:
                             subcategories_container.clear()
                             selected_cost_type_id = None
                             selected_cost_type_name = None
-                            return
+                        else:
+                            category_name_by_id = {
+                                item.cost_type_id: item.cost_type_name for item in report.totals_by_cost_type
+                            }
+                            if selected_cost_type_id not in category_name_by_id:
+                                selected_cost_type_id = report.totals_by_cost_type[0].cost_type_id
+                                selected_cost_type_name = report.totals_by_cost_type[0].cost_type_name
 
-                        category_name_by_id = {item.cost_type_id: item.cost_type_name for item in report.totals_by_cost_type}
-                        if selected_cost_type_id not in category_name_by_id:
-                            selected_cost_type_id = report.totals_by_cost_type[0].cost_type_id
-                            selected_cost_type_name = report.totals_by_cost_type[0].cost_type_name
-
-                        rows = []
-                        for item in report.totals_by_cost_type:
-                            _, direction_color = amount_state(item.total_cents)
-                            rows.append(
+                            rows = []
+                            for item in report.totals_by_cost_type:
+                                _, direction_color = amount_state(item.total_cents)
+                                rows.append(
+                                    {
+                                        "id": item.cost_type_id,
+                                        "name": item.cost_type_name,
+                                        "total": _format_cents(item.total_cents, settings.default_currency),
+                                        "total_class": direction_color,
+                                    }
+                                )
+                            columns = [
                                 {
-                                    "id": item.cost_type_id,
-                                    "name": item.cost_type_name,
-                                    "total": _format_cents(item.total_cents, settings.default_currency),
-                                    "total_class": direction_color,
-                                }
+                                    "name": "name",
+                                    "label": "Kostenkategorie",
+                                    "field": "name",
+                                    "align": "left",
+                                    "sortable": True,
+                                },
+                                {
+                                    "name": "total",
+                                    "label": f"Summe ({settings.default_currency})",
+                                    "field": "total",
+                                    "align": "right",
+                                    "sortable": True,
+                                },
+                            ]
+                            table = _erp_table(columns=columns, rows=rows, row_key="id", rows_per_page=20)
+                            table.add_slot(
+                                "body-cell-total",
+                                """
+                                <q-td :props="props" class="text-right">
+                                  <span :class="props.row.total_class">{{ props.row.total }}</span>
+                                </q-td>
+                                """,
                             )
-                        columns = [
-                            {"name": "name", "label": "Kostenkategorie", "field": "name", "align": "left", "sortable": True},
-                            {
-                                "name": "total",
-                                "label": f"Summe ({settings.default_currency})",
-                                "field": "total",
-                                "align": "right",
-                                "sortable": True,
-                            },
-                        ]
-                        table = _erp_table(columns=columns, rows=rows, row_key="id", rows_per_page=20)
-                        table.add_slot(
-                            "body-cell-total",
-                            """
-                            <q-td :props="props" class="text-right">
-                              <span :class="props.row.total_class">{{ props.row.total }}</span>
-                            </q-td>
-                            """,
-                        )
 
-                        def on_category_click(event: events.GenericEventArguments) -> None:
-                            nonlocal selected_cost_type_id, selected_cost_type_name
-                            category_id = _extract_row_id(event) or -1
-                            if category_id <= 0:
-                                return
-                            if category_id not in category_name_by_id:
-                                return
-                            selected_cost_type_id = category_id
-                            selected_cost_type_name = category_name_by_id[category_id]
+                            def on_category_click(event: events.GenericEventArguments) -> None:
+                                nonlocal selected_cost_type_id, selected_cost_type_name
+                                category_id = _extract_row_id(event) or -1
+                                if category_id <= 0:
+                                    return
+                                if category_id not in category_name_by_id:
+                                    return
+                                selected_cost_type_id = category_id
+                                selected_cost_type_name = category_name_by_id[category_id]
+                                render_subcategories(from_value, to_value)
+
+                            table.on("rowClick", on_category_click)
                             render_subcategories(from_value, to_value)
 
-                        table.on("rowClick", on_category_click)
-                        render_subcategories(from_value, to_value)
+                    if from_value and to_value:
+                        render_income_report(from_value, to_value)
 
                 render_report()
 

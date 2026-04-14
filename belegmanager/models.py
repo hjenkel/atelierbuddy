@@ -1,6 +1,8 @@
 from datetime import date, datetime, timezone
+from decimal import Decimal
 from typing import List, Optional
 
+from sqlalchemy import Column, Numeric
 from sqlmodel import Field, Relationship, SQLModel
 
 
@@ -114,6 +116,7 @@ class Contact(SQLModel, table=True):
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     contact_category: ContactCategory = Relationship(back_populates="contacts")
+    orders: List["Order"] = Relationship(back_populates="contact")
 
 
 class Project(SQLModel, table=True):
@@ -128,6 +131,7 @@ class Project(SQLModel, table=True):
     created_on: Optional[date] = Field(default=None, index=True)
 
     allocations: List["CostAllocation"] = Relationship(back_populates="project")
+    order_items: List["OrderItem"] = Relationship(back_populates="project")
 
 
 class ImportBatch(SQLModel, table=True):
@@ -193,3 +197,38 @@ class CostAllocation(SQLModel, table=True):
     cost_subcategory: Optional[CostSubcategory] = Relationship(back_populates="allocations")
     project: Optional[Project] = Relationship(back_populates="allocations")
     cost_area: Optional[CostArea] = Relationship(back_populates="allocations")
+
+
+class Order(SQLModel, table=True):
+    __tablename__ = "sales_order"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    internal_number: str = Field(index=True, unique=True)
+    contact_id: int = Field(foreign_key="contact.id", index=True)
+    sale_date: date = Field(index=True)
+    invoice_date: Optional[date] = Field(default=None, index=True)
+    invoice_number: Optional[str] = Field(default=None, index=True, unique=True)
+    notes: Optional[str] = Field(default=None)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), index=True)
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    deleted_at: Optional[datetime] = Field(default=None, index=True)
+
+    contact: Contact = Relationship(back_populates="orders")
+    items: List["OrderItem"] = Relationship(back_populates="order")
+
+
+class OrderItem(SQLModel, table=True):
+    __tablename__ = "sales_order_item"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    order_id: int = Field(foreign_key="sales_order.id", index=True)
+    position: int = Field(default=1, index=True)
+    description: str
+    quantity: Decimal = Field(sa_column=Column(Numeric(12, 3), nullable=False))
+    unit_price_cents: int
+    project_id: Optional[int] = Field(default=None, foreign_key="project.id", index=True)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+    order: Order = Relationship(back_populates="items")
+    project: Optional[Project] = Relationship(back_populates="order_items")

@@ -9,9 +9,11 @@ Version-Single-Source: `pyproject.toml` (`0.1.0`)
 - `OCRService`
 - `OCRJobQueue` (Background-Worker-Thread)
 - `SearchService`
+- `OrderSearchService`
 - `ReportService`
 - `CostAllocationService`
 - `ReceiptService`
+- `OrderService`
 
 ## Docker-Laufzeit (empfohlen)
 Standardbetrieb über `docker-compose.yml`:
@@ -44,6 +46,16 @@ Relevante ENV-Overrides:
    - Zuordnungssumme muss exakt Brutto entsprechen.
    - Jede Zuordnungszeile braucht Kostenkategorie + Unterkategorie.
 
+## Flow 2b: Verkauf bearbeiten/speichern
+1. Verkauf wird zunächst mit Kontakt + Verkaufsdatum angelegt; die interne Verkaufsnummer wird sofort vergeben.
+2. Auf der Detailseite speichert `OrderService.save_order(...)` Kopf- und Positionsdaten transaktional.
+3. Harte Regeln:
+   - `sale_date` ist Pflicht.
+   - `invoice_date` => `invoice_number` Pflicht und eindeutig.
+   - sobald `invoice_date` oder `invoice_number` gesetzt ist, kann der Verkauf nicht mehr gelöscht oder archiviert werden.
+   - mindestens eine Position,
+   - jede Position braucht Beschreibung, Menge `> 0` und Einzelpreis; Projekt ist optional.
+
 ## Flow 3: Suche und Filter
 `SearchService.search(...)` kombiniert:
 - FTS-Query (`receipt_fts`)
@@ -71,6 +83,12 @@ Ausgabe:
 - Gesamtsumme im Zeitraum,
 - Summen je Kostenkategorie,
 - Drilldown auf Unterkategorien.
+
+Zusätzlich für Einnahmen:
+- nur abgerechnete Verkäufe (`invoice_date` gesetzt, nicht gelöscht, mindestens eine Position),
+- Aggregation nach `invoice_date`,
+- Summen je Projekt,
+- Drilldown auf abgerechnete Verkäufe innerhalb des gewählten Projekts.
 
 ## Warum diese Prozessaufteilung
 - Services halten Fachlogik aus der UI heraus.

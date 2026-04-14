@@ -4,6 +4,8 @@ from .import_service import ImportService
 from .jobs import OCRJobQueue
 from .masterdata_service import MasterDataService
 from .ocr_service import OCRService
+from .order_search_service import OrderSearchService
+from .order_service import OrderService
 from .receipt_service import ReceiptService
 from .report_service import ReportService
 from .search_service import SearchService
@@ -15,6 +17,8 @@ __all__ = [
     "OCRJobQueue",
     "MasterDataService",
     "OCRService",
+    "OrderSearchService",
+    "OrderService",
     "ReceiptService",
     "ReportService",
     "SearchService",

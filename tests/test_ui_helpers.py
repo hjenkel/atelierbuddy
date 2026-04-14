@@ -1,5 +1,18 @@
+from decimal import Decimal
+
 from belegmanager.models import Contact
-from belegmanager.ui.pages import _contact_display_name_from_values, _contact_sort_key, _extract_row_id
+from belegmanager.services.order_service import order_item_total_cents
+from belegmanager.ui.pages import (
+    _common_project_id_from_rows,
+    _contact_display_name_from_values,
+    _contact_sort_key,
+    _extract_row_id,
+    _normalize_money_input,
+    _normalize_quantity_input,
+    _parse_money_to_cents,
+    _parse_quantity,
+    _uses_position_project_mode,
+)
 
 
 def test_extract_row_id_accepts_int_and_numeric_str() -> None:
@@ -47,3 +60,26 @@ def test_contact_sort_key_prefers_family_name_then_given_name() -> None:
 
     assert _contact_sort_key(primary) == ("stern", "mila", "")
     assert _contact_sort_key(fallback) == ("alex", "", "")
+
+
+def test_order_value_helpers_keep_10_eur_times_1_at_10_eur() -> None:
+    quantity = _parse_quantity("1")
+    unit_price_cents = _parse_money_to_cents("10", allow_negative=True)
+    assert quantity == Decimal("1.000")
+    assert unit_price_cents == 1000
+    assert order_item_total_cents(quantity, unit_price_cents) == 1000
+
+
+def test_order_value_helpers_normalize_inputs_to_canonical_format() -> None:
+    assert _normalize_quantity_input("1,00") == "1"
+    assert _normalize_money_input("10", allow_negative=True) == "10,00"
+
+
+def test_project_mode_helpers_detect_common_and_mixed_projects() -> None:
+    same_project_rows = [{"project_id": 3}, {"project_id": 3}]
+    mixed_project_rows = [{"project_id": 3}, {"project_id": None}]
+
+    assert _common_project_id_from_rows(same_project_rows) == 3
+    assert _uses_position_project_mode(same_project_rows) is False
+    assert _common_project_id_from_rows(mixed_project_rows) is None
+    assert _uses_position_project_mode(mixed_project_rows) is True

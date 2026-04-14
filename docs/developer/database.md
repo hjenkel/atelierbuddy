@@ -7,6 +7,7 @@ Version-Single-Source: `pyproject.toml` (`0.1.0`)
 Die App nutzt SQLite mit SQLModel/SQLAlchemy.  
 Hauptfokus liegt auf:
 - `receipt` als Beleg-Stammsatz,
+- `sales_order` + `sales_order_item` für Verkäufe / Ausgangsrechnungen,
 - `cost_allocation` als fachliche Zuordnungs-Wahrheit,
 - Stammdaten (`project`, `supplier`, `contact`, `contact_category`, `cost_type`, `cost_subcategory`),
 - Auth-Basis (`app_user`, `auth_attempt`).
@@ -24,6 +25,9 @@ erDiagram
     COST_TYPE ||--o{ COST_ALLOCATION : classifies
     COST_SUBCATEGORY ||--o{ COST_ALLOCATION : refines
     PROJECT ||--o{ COST_ALLOCATION : targets
+    CONTACT ||--o{ SALES_ORDER : invoices
+    SALES_ORDER ||--o{ SALES_ORDER_ITEM : has
+    PROJECT ||--o{ SALES_ORDER_ITEM : targets
     COST_AREA ||--o{ COST_ALLOCATION : fallback_target
     SUPPLIER ||--o{ RECEIPT : issued_by
     IMPORT_BATCH ||--o{ RECEIPT : imported
@@ -117,10 +121,37 @@ erDiagram
       datetime created_at
       datetime updated_at
     }
+
+    SALES_ORDER {
+      int id PK
+      string internal_number
+      int contact_id FK
+      date sale_date
+      date invoice_date
+      string invoice_number
+      string notes
+      datetime created_at
+      datetime updated_at
+      datetime deleted_at
+    }
+
+    SALES_ORDER_ITEM {
+      int id PK
+      int order_id FK
+      int position
+      string description
+      decimal quantity
+      int unit_price_cents
+      int project_id FK
+      datetime created_at
+      datetime updated_at
+    }
 ```
 
 ## Tabellen und fachliche Rolle
 - `receipt`: Belegkopf inkl. Betrag, optionalen Notizen, Typ (`invoice`/`credit_note`), OCR-Status, Soft-Delete.
+- `sales_order`: Verkaufskopf mit internem Nummernkreis, Pflicht-Kontakt, Verkaufs-/Rechnungsdatum und Soft-Delete.
+- `sales_order_item`: einfache Positionszeilen pro Verkauf; Projekt ist optional, Gesamtwerte werden aus Menge x Einzelpreis berechnet.
 - `cost_allocation`: eine oder mehrere Zuordnungszeilen pro Beleg; Summe muss Beleg-Brutto entsprechen.
 - `cost_type`: Kostenkategorie (aktiv/archiviert).
 - `cost_subcategory`: Unterkategorie je Kostenkategorie, inkl. systemseitigem Default.
@@ -129,14 +160,17 @@ erDiagram
 - `supplier`: Anbieter/Lieferant.
 - `contact_category`: einfache Kontaktkategorie ohne Unterkategorien; Löschen wird blockiert, solange Kontakte zugeordnet sind.
 - `contact`: personenbasierter Kontakt mit genau einer Kategorie; aktuell ohne Soft-Delete oder Archivierung.
+- Kontakte dürfen nicht gelöscht werden, solange Verkäufe auf sie referenzieren.
+- Projekte dürfen nicht gelöscht werden, solange Beleg-Zuordnungen oder Verkaufspositionen auf sie referenzieren.
 - `import_batch`: Importlauf (Zählwerte und Zeiten).
 - `app_user`: lokaler Login-Benutzer (Argon2-Hash, Status, Lockout-Metadaten).
 - `auth_attempt`: Login-Versuchsprotokoll für Lockout/Monitoring.
 
 ## Wichtige technische Konventionen
 - Geldwerte in `*_cents` als Integer gespeichert.
+- Verkaufsmengen liegen als `Decimal(12,3)` vor; Zeilensummen werden kaufmännisch auf Cent gerundet.
 - Timestamps in UTC.
-- Soft-Delete über `receipt.deleted_at`.
+- Soft-Delete über `receipt.deleted_at` und `sales_order.deleted_at`.
 - Volltextsuche über FTS5-Tabelle `receipt_fts(receipt_id, content)`.
 
 ## Migration, Seeds und Schema-Reset

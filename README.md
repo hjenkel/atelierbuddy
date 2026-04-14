@@ -1,6 +1,6 @@
 # Atelier Buddy
 
-Lokale Python-Web-App für einfache Belegverwaltung in kreativen Arbeitskontexten.
+Lokale Python-Web-App für einfache Beleg- und Verkaufsverwaltung in kreativen Arbeitskontexten.
 
 Aktuelle Version: `0.1.0` (pre-alpha)
 
@@ -9,8 +9,9 @@ Atelier Buddy ist für **Künstler:innen, Bands und andere Kreative** gedacht, d
 
 Fokus aktuell:
 - einfache Belegverwaltung
+- einfache Verwaltung von Ausgangsrechnungen / Verkäufen
 - saubere Zuordnung von Ausgaben
-- Vorbereitung für EUER-Auswertungen
+- Vorbereitung für EÜR-Auswertungen
 
 Nicht im Fokus aktuell:
 - USt-Voranmeldungen
@@ -38,6 +39,9 @@ Wenn du Erfahrung mit Python, Buchhaltungslogik, Security oder UX hast:
 - OCR mit `ocrmypdf` (deu+eng)
 - Volltextsuche via SQLite FTS5
 - Kostenzuordnung pro Beleg mit Kostenkategorie + Unterkategorie + optionalem Projekt
+- Verkaufsverwaltung mit Kontaktbezug, interner Verkaufsnummer, manueller Rechnungsnummer und einfachen Positionszeilen
+- Projektbezogene Verkaufspositionen mit Mengen, Einzelpreisen und berechneten Zeilensummen
+- Einnahmenauswertung für abgerechnete Verkäufe nach Rechnungsdatum mit Projektdrilldown
 - Wenn kein Projekt gewählt wird, erfolgt intern automatisch die Zuordnung zur Kostenstelle `Allgemeine Ausgabe`
 - Standardmodus mit 100%-Zuordnung und optionaler Split-Aufteilung
 - Schlanke Kontaktverwaltung mit pflegbaren Kontaktkategorien
