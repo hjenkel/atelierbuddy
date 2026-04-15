@@ -35,16 +35,25 @@ DOC_TYPE_CREDIT_NOTE = "credit_note"
 LOG = logging.getLogger(__name__)
 _NAV_STATE = {
     "sidebar_expanded": True,
-    "open_groups": {"management": True},
+    "open_groups": {"finance": True, "management": True},
     "last_path": None,
 }
 
 _NAV_CONFIG: list[dict[str, Any]] = [
     {"type": "item", "path": "/", "label": "Dashboard", "icon": "dashboard"},
-    {"type": "item", "path": "/belege", "label": "Belege", "icon": "description"},
-    {"type": "item", "path": "/verkaeufe", "label": "Verkäufe", "icon": "receipt_long"},
     {"type": "item", "path": "/kontakte", "label": "Kontakte", "icon": "contacts"},
     {"type": "item", "path": "/projekte", "label": "Projekte", "icon": "palette"},
+    {
+        "type": "group",
+        "key": "finance",
+        "label": "Finanzen",
+        "icon": "account_balance_wallet",
+        "items": [
+            {"path": "/belege", "label": "Belege", "icon": "description"},
+            {"path": "/verkaeufe", "label": "Verkäufe", "icon": "receipt_long"},
+            {"path": "/auswertung", "label": "Auswertung", "icon": "insights"},
+        ],
+    },
     {
         "type": "group",
         "key": "management",
@@ -52,12 +61,10 @@ _NAV_CONFIG: list[dict[str, Any]] = [
         "icon": "admin_panel_settings",
         "items": [
             {"path": "/lieferanten", "label": "Anbieter", "icon": "local_shipping"},
-            {"path": "/kontaktkategorien", "label": "Kontaktkategorien", "icon": "badge"},
             {"path": "/kategorien", "label": "Kostenkategorien", "icon": "category"},
+            {"path": "/kontaktkategorien", "label": "Kontaktkategorien", "icon": "badge"},
         ],
     },
-    {"type": "item", "path": "/auswertung", "label": "Auswertung", "icon": "insights"},
-    {"type": "item", "path": "/einstellungen", "label": "Einstellungen", "icon": "settings"},
 ]
 
 _HELP_CONTENT_BY_PATH: dict[str, dict[str, str]] = {
@@ -484,7 +491,7 @@ def _icon_option_html(label: str, icon: str) -> str:
 
 
 @contextmanager
-def _shell(active_path: str, title: str):
+def _shell(active_path: str, title: str, *, show_page_head: bool = True):
     def context_class(path: str) -> str:
         if path.startswith("/belege") or path.startswith("/lieferanten") or path.startswith("/kategorien") or path.startswith(
             "/import"
@@ -664,11 +671,12 @@ def _shell(active_path: str, title: str):
                             nav_item(str(item.get("path")), str(item.get("label")), str(item.get("icon")), nested=True)
 
             with ui.column().classes("bm-content"):
-                with ui.row().classes("bm-page-head w-full items-center justify-between"):
-                    with ui.column().classes("gap-1"):
-                        ui.label(title).classes("bm-page-title")
-                    if is_expanded:
-                        ui.image("/assets/blob-bg.svg").classes("w-24 opacity-70")
+                if show_page_head:
+                    with ui.row().classes("bm-page-head w-full items-center justify-between"):
+                        with ui.column().classes("gap-1"):
+                            ui.label(title).classes("bm-page-title")
+                        if is_expanded:
+                            ui.image("/assets/blob-bg.svg").classes("w-24 opacity-70")
                 with ui.column().classes("w-full max-w-7xl mx-auto gap-4"):
                     yield
 
@@ -1312,7 +1320,7 @@ def register_pages(services: ServiceContainer) -> None:
         except ValueError:
             rid = -1
 
-        with _shell("/belege", "Belegdetail"):
+        with _shell("/belege", "Belegdetail", show_page_head=False):
             if rid <= 0:
                 with ui.card().classes("bm-card p-4 w-full"):
                     ui.label("Ungültige Beleg-ID")
@@ -2823,7 +2831,7 @@ def register_pages(services: ServiceContainer) -> None:
         except ValueError:
             oid = -1
 
-        with _shell("/verkaeufe", "Verkaufsdetail"):
+        with _shell("/verkaeufe", "Verkaufsdetail", show_page_head=False):
             if oid <= 0:
                 with ui.card().classes("bm-card p-4 w-full"):
                     ui.label("Ungültige Verkaufs-ID")
@@ -3151,7 +3159,7 @@ def register_pages(services: ServiceContainer) -> None:
                         _notify_error("Verkauf konnte nicht gespeichert werden", exc)
                         return
                     ui.notify("Verkauf gespeichert", type="positive")
-                    ui.navigate.to(f"/verkaeufe/{saved.id}")
+                    ui.navigate.to("/verkaeufe")
 
                 def _detail_move_to_deleted() -> None:
                     try:
