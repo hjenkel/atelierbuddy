@@ -187,6 +187,23 @@ class OrderService:
             session.commit()
             return old_document_path
 
+    def remove_invoice_document(self, order_id: int) -> str | None:
+        with Session(self._engine) as session:
+            order = session.get(Order, order_id)
+            if order is None:
+                raise ValueError("Verkauf nicht gefunden")
+            if order.deleted_at is not None:
+                raise ValueError("Gelöschter Verkauf kann nicht bearbeitet werden")
+
+            old_document_path = order.invoice_document_path
+            order.invoice_document_path = None
+            order.invoice_document_original_filename = None
+            order.invoice_document_uploaded_at = None
+            order.updated_at = datetime.now(timezone.utc)
+            session.add(order)
+            session.commit()
+            return old_document_path
+
     def hard_delete(self, order_id: int) -> None:
         with Session(self._engine) as session:
             order = session.get(Order, order_id)

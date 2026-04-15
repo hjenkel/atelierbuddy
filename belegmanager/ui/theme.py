@@ -505,6 +505,16 @@ def apply_theme() -> None:
           height: auto !important;
         }
 
+        .bm-order-notes.q-field.q-textarea .q-field__control {
+          height: 104px !important;
+          min-height: 104px !important;
+        }
+
+        .bm-order-notes.q-field.q-textarea textarea {
+          min-height: 74px !important;
+          resize: vertical;
+        }
+
         /* Label bündig zum Eingabetext mit kleinem optischen Offset */
         .q-field__label {
           left: 0 !important;
@@ -765,6 +775,13 @@ def apply_theme() -> None:
           color: var(--bm-text) !important;
         }
 
+        .q-btn.bm-toolbar-action-btn--danger,
+        .q-btn.bm-toolbar-action-btn--danger .q-icon,
+        .q-btn.bm-toolbar-action-btn--danger .q-btn__content,
+        .q-btn.bm-toolbar-action-btn--danger .q-btn__content * {
+          color: var(--bm-danger) !important;
+        }
+
         .bm-hidden-upload {
           position: absolute !important;
           width: 1px !important;
@@ -774,6 +791,10 @@ def apply_theme() -> None:
           overflow: hidden !important;
           opacity: 0 !important;
           pointer-events: none !important;
+        }
+
+        .bm-invoice-section {
+          background: var(--bm-surface-alt) !important;
         }
 
         .bm-table .q-table thead tr th {

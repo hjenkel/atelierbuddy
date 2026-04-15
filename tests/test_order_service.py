@@ -443,3 +443,109 @@ def test_order_with_invoice_document_only_cannot_be_moved_to_trash_or_hard_delet
         assert "nicht gelöscht oder archiviert" in str(exc)
     else:
         raise AssertionError("expected ValueError for hard deleting order with document")
+
+
+def test_remove_invoice_document_clears_document_fields_and_returns_old_path() -> None:
+    service, _, engine = _build_services()
+    contact_id, project_id = _seed_contact_and_project(engine)
+    order = service.create_order(contact_id=contact_id, sale_date=date(2026, 1, 10))
+    service.save_order(
+        order_id=order.id or 0,
+        contact_id=contact_id,
+        sale_date=date(2026, 1, 10),
+        invoice_date=date(2026, 1, 12),
+        invoice_number="RE-2026-13",
+        notes=None,
+        items=[
+            OrderItemInput(
+                description="Rechnung",
+                quantity=Decimal("1.000"),
+                unit_price_cents=12000,
+                project_id=project_id,
+                position=1,
+            )
+        ],
+    )
+    service.set_invoice_document(
+        order_id=order.id or 0,
+        document_path="/tmp/re-2026-13.pdf",
+        original_filename="re-2026-13.pdf",
+    )
+
+    old_path = service.remove_invoice_document(order.id or 0)
+
+    with Session(engine) as session:
+        stored_order = session.get(Order, order.id)
+
+    assert old_path == "/tmp/re-2026-13.pdf"
+    assert stored_order is not None
+    assert stored_order.invoice_document_path is None
+    assert stored_order.invoice_document_original_filename is None
+    assert stored_order.invoice_document_uploaded_at is None
+    assert order_status_key(stored_order) == "document_missing"
+
+
+def test_remove_invoice_document_requires_existing_active_order() -> None:
+    service, _, engine = _build_services()
+    contact_id, _ = _seed_contact_and_project(engine)
+    order = service.create_order(contact_id=contact_id, sale_date=date(2026, 1, 10))
+    service.move_to_trash(order.id or 0)
+
+    try:
+        service.remove_invoice_document(999)
+    except ValueError as exc:
+        assert "Verkauf nicht gefunden" in str(exc)
+    else:
+        raise AssertionError("expected ValueError for missing order")
+
+    try:
+        service.remove_invoice_document(order.id or 0)
+    except ValueError as exc:
+        assert "Gelöschter Verkauf kann nicht bearbeitet werden" in str(exc)
+    else:
+        raise AssertionError("expected ValueError for deleted order")
+
+
+def test_order_with_document_only_can_be_deleted_after_document_removal() -> None:
+    service, _, engine = _build_services()
+    contact_id, _ = _seed_contact_and_project(engine)
+    document_only_order = service.create_order(contact_id=contact_id, sale_date=date(2026, 1, 10))
+    numbered_order = service.create_order(contact_id=contact_id, sale_date=date(2026, 1, 11))
+    service.set_invoice_document(
+        order_id=document_only_order.id or 0,
+        document_path="/tmp/rechnung.pdf",
+        original_filename="rechnung.pdf",
+    )
+    service.set_invoice_document(
+        order_id=numbered_order.id or 0,
+        document_path="/tmp/rechnung-mit-nummer.pdf",
+        original_filename="rechnung-mit-nummer.pdf",
+    )
+    service.save_order(
+        order_id=numbered_order.id or 0,
+        contact_id=contact_id,
+        sale_date=date(2026, 1, 11),
+        invoice_date=None,
+        invoice_number="RE-2026-14",
+        notes=None,
+        items=[
+            OrderItemInput(
+                description="Rechnung",
+                quantity=Decimal("1.000"),
+                unit_price_cents=12000,
+                project_id=None,
+                position=1,
+            )
+        ],
+    )
+
+    service.remove_invoice_document(document_only_order.id or 0)
+    service.remove_invoice_document(numbered_order.id or 0)
+
+    service.move_to_trash(document_only_order.id or 0)
+    try:
+        service.move_to_trash(numbered_order.id or 0)
+    except ValueError as exc:
+        assert "nicht gelöscht oder archiviert" in str(exc)
+    else:
+        raise AssertionError("expected ValueError for archiving numbered order")

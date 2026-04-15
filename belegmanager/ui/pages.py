@@ -2885,6 +2885,11 @@ def register_pages(services: ServiceContainer) -> None:
                 or bool((order.invoice_document_path or "").strip())
             )
             invoice_document_url = to_files_url(order.invoice_document_path)
+            invoice_document_name = (
+                (order.invoice_document_original_filename or "").strip()
+                or Path(order.invoice_document_path or "").name
+                or "Rechnungsdokument"
+            )
 
             item_rows: list[dict[str, Any]] = []
             if order.items:
@@ -2930,6 +2935,31 @@ def register_pages(services: ServiceContainer) -> None:
                     return
                 ui.run_javascript(f"window.open({json.dumps(invoice_document_url)}, '_blank', 'noopener')")
 
+            def remove_invoice_document() -> None:
+                try:
+                    old_document_path = services.order_service.remove_invoice_document(oid)
+                    safe_delete_file(old_document_path)
+                    ui.notify("Rechnungsdokument entfernt", type="positive")
+                    ui.navigate.to(f"/verkaeufe/{oid}")
+                except Exception as exc:
+                    _notify_error("Rechnungsdokument konnte nicht entfernt werden", exc)
+
+            def confirm_remove_invoice_document() -> None:
+                with ui.dialog() as remove_dialog, ui.card().classes("p-4 w-[520px] max-w-full"):
+                    ui.label("Rechnungsdokument entfernen?").classes("text-lg font-semibold")
+                    ui.label("Das aktuell hinterlegte Rechnungsdokument wird unwiderruflich gelöscht.")
+                    with ui.row().classes("w-full justify-end gap-2"):
+                        ui.button("Abbrechen", on_click=remove_dialog.close).props("flat")
+                        ui.button(
+                            "Dokument entfernen",
+                            icon="delete_outline",
+                            on_click=lambda: (
+                                remove_dialog.close(),
+                                remove_invoice_document(),
+                            ),
+                        ).props("color=negative")
+                remove_dialog.open()
+
             with ui.card().classes("bm-card p-4 w-full gap-4"):
                 with ui.row().classes("bm-detail-toolbar w-full items-center justify-between"):
                     with ui.row().classes("items-center gap-2"):
@@ -2945,26 +2975,6 @@ def register_pages(services: ServiceContainer) -> None:
                                 on_click=lambda: _detail_move_to_deleted(),
                             ).props("flat round dense").classes("bm-icon-action-btn bm-icon-action-btn--danger")
                             delete_btn.tooltip("In Gelöschte Verkäufe")
-                        if invoice_document_url:
-                            view_document_btn = ui.button(
-                                "Dokument anzeigen",
-                                icon="visibility",
-                                on_click=open_invoice_document,
-                            ).props("flat no-caps").classes("bm-toolbar-action-btn")
-                        if not is_deleted:
-                            document_upload = ui.upload(
-                                multiple=False,
-                                auto_upload=True,
-                                on_multi_upload=handle_invoice_document_upload,
-                                label="",
-                            ).classes("bm-hidden-upload")
-                            document_upload.props("accept=.pdf,.jpg,.jpeg,.png,.heic,.heif")
-                            upload_label = "Dokument ersetzen" if invoice_document_url else "Dokument hochladen"
-                            ui.button(
-                                upload_label,
-                                icon="upload_file",
-                                on_click=lambda: document_upload.run_method("pickFiles"),
-                            ).props("flat no-caps").classes("bm-toolbar-action-btn")
                         if not is_deleted:
                             save_btn = ui.button(
                                 icon="save",
@@ -2980,46 +2990,88 @@ def register_pages(services: ServiceContainer) -> None:
 
                 ui.label(f"Verkauf {order.internal_number}").classes("text-xl font-semibold")
 
-                with ui.row().classes("w-full gap-3 wrap"):
+                with ui.row().classes("w-full gap-3 wrap items-end"):
                     contact_input = ui.select(contact_map, value=order.contact_id, label="Kontakt").classes(
                         "min-w-[260px] flex-1"
                     )
+                    internal_number_input = ui.input("Interne Verkaufsnummer", value=order.internal_number).props(
+                        "readonly"
+                    ).classes("min-w-[190px] flex-1")
                     sale_date_input = ui.input("Verkaufsdatum", value=order.sale_date.isoformat()).props("type=date").classes(
                         "w-44"
                     )
-                    invoice_date_input = ui.input(
-                        "Rechnungsdatum",
-                        value=order.invoice_date.isoformat() if order.invoice_date else "",
-                    ).props("type=date clearable").classes("w-44")
-                    invoice_number_input = ui.input(
-                        "Rechnungsnummer",
-                        value=order.invoice_number or "",
-                    ).classes("min-w-[220px] flex-1")
-
-                with ui.row().classes("w-full gap-3 wrap items-end"):
-                    internal_number_input = ui.input("Interne Verkaufsnummer", value=order.internal_number).props(
-                        "readonly"
-                    ).classes("min-w-[220px] flex-1")
-                    head_project_container = ui.row().classes("min-w-[260px] flex-1")
-                    with head_project_container:
-                        head_project_input = ui.select(
-                            project_map,
-                            value=None,
-                            label="Projekt für alle Positionen",
-                            clearable=True,
-                        ).classes("w-full")
-                    with ui.row().classes("items-center"):
-                        project_mode_input = ui.switch("Projekt je Position", value=project_mode_enabled).classes(
-                            "bm-inline-switch bm-order-project-toggle"
-                        )
-                        project_mode_input.props("color=primary")
-                    total_preview = ui.input("Gesamt", value="-").props("readonly").classes("w-48")
                     status_preview = ui.input("Status", value=order_status_label(order)).props("readonly").classes(
                         "w-40"
                     )
 
-                notes_input = ui.textarea("Notiz", value=order.notes or "").classes("w-full")
+                with ui.row().classes("w-full gap-4 items-start wrap"):
+                    with ui.column().classes("min-w-[320px] flex-[1_1_520px] gap-3"):
+                        notes_input = ui.textarea("Notiz", value=order.notes or "").classes("w-full bm-order-notes")
+                        with ui.row().classes("w-full gap-3 wrap items-center"):
+                            head_project_container = ui.row().classes("min-w-[260px] flex-1")
+                            with head_project_container:
+                                head_project_input = ui.select(
+                                    project_map,
+                                    value=None,
+                                    label="Projekt für alle Positionen",
+                                    clearable=True,
+                                ).classes("w-full")
+                            with ui.row().classes("items-center"):
+                                project_mode_input = ui.switch("Projekt je Position", value=project_mode_enabled).classes(
+                                    "bm-inline-switch bm-order-project-toggle"
+                                )
+                                project_mode_input.props("color=primary")
+
+                    with ui.card().classes("bm-invoice-section bm-card p-4 min-w-[320px] flex-[1_1_360px] gap-3"):
+                        with ui.row().classes("w-full items-center justify-between gap-2"):
+                            ui.label("Rechnung").classes("text-base font-semibold")
+                            with ui.row().classes("items-center gap-1"):
+                                if invoice_document_url:
+                                    view_document_btn = ui.button(
+                                        icon="visibility",
+                                        on_click=open_invoice_document,
+                                    ).props("flat round dense").classes("bm-icon-action-btn")
+                                    view_document_btn.tooltip("Dokument anzeigen")
+                                if not is_deleted and not invoice_document_url:
+                                    document_upload = ui.upload(
+                                        multiple=False,
+                                        auto_upload=True,
+                                        on_multi_upload=handle_invoice_document_upload,
+                                        label="",
+                                    ).classes("bm-hidden-upload")
+                                    document_upload.props("accept=.pdf,.jpg,.jpeg,.png,.heic,.heif")
+                                    upload_btn = ui.button(
+                                        icon="upload_file",
+                                        on_click=lambda: document_upload.run_method("pickFiles"),
+                                    ).props("flat round dense").classes("bm-icon-action-btn")
+                                    upload_btn.tooltip("Dokument hochladen")
+                                if invoice_document_url and not is_deleted:
+                                    remove_document_btn = ui.button(
+                                        icon="delete_outline",
+                                        on_click=confirm_remove_invoice_document,
+                                    ).props("flat round dense").classes("bm-icon-action-btn bm-icon-action-btn--danger")
+                                    remove_document_btn.tooltip("Dokument entfernen")
+
+                        with ui.row().classes("w-full gap-3 wrap items-end"):
+                            invoice_date_input = ui.input(
+                                "Rechnungsdatum",
+                                value=order.invoice_date.isoformat() if order.invoice_date else "",
+                            ).props("type=date clearable").classes("w-44")
+                            invoice_number_input = ui.input(
+                                "Rechnungsnummer",
+                                value=order.invoice_number or "",
+                            ).classes("min-w-[180px] flex-1")
+                        document_hint = (
+                            f"Hochgeladen: {invoice_document_name}"
+                            if invoice_document_url
+                            else "Noch kein Rechnungsdokument hinterlegt."
+                        )
+                        ui.label(document_hint).classes("text-xs text-slate-600")
+
                 item_editor = ui.column().classes("w-full gap-2")
+                with ui.row().classes("w-full items-end justify-between gap-3 wrap"):
+                    ui.label("Alle Preise ohne Umsatzsteuer eingeben (§19 UStG).").classes("text-xs text-slate-600")
+                    total_preview = ui.input("Gesamtsumme", value="-").props("readonly").classes("w-48")
 
                 def parse_row_total_cents(row: dict[str, Any]) -> int | None:
                     try:
@@ -3072,9 +3124,10 @@ def register_pages(services: ServiceContainer) -> None:
                     return "Entwurf"
 
                 def apply_project_mode_visibility() -> None:
-                    head_project_container.classes(remove="hidden")
                     if bool(project_mode_input.value):
-                        head_project_container.classes(add="hidden")
+                        head_project_input.disable()
+                    else:
+                        head_project_input.enable()
 
                 def render_item_row(row: dict[str, Any]) -> None:
                     with ui.card().classes("bm-card p-3 w-full"):
