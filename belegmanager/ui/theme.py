@@ -749,6 +749,33 @@ def apply_theme() -> None:
           color: #fff !important;
         }
 
+        .bm-toolbar-action-btn {
+          min-height: 40px !important;
+          padding: 0 12px !important;
+          border: 2px solid var(--bm-border) !important;
+          background: var(--bm-surface-strong) !important;
+          color: var(--bm-text) !important;
+          box-shadow: var(--bm-shadow-soft) !important;
+        }
+
+        .q-btn.bm-toolbar-action-btn,
+        .q-btn.bm-toolbar-action-btn .q-icon,
+        .q-btn.bm-toolbar-action-btn .q-btn__content,
+        .q-btn.bm-toolbar-action-btn .q-btn__content * {
+          color: var(--bm-text) !important;
+        }
+
+        .bm-hidden-upload {
+          position: absolute !important;
+          width: 1px !important;
+          height: 1px !important;
+          min-width: 1px !important;
+          min-height: 1px !important;
+          overflow: hidden !important;
+          opacity: 0 !important;
+          pointer-events: none !important;
+        }
+
         .bm-table .q-table thead tr th {
           font-weight: 700;
           color: var(--bm-text);

@@ -18,14 +18,19 @@ MAX_NOTES_LENGTH = 5000
 
 
 def order_status_key(order: Order) -> str:
-    if order.invoice_date is not None:
+    has_invoice_number = bool((order.invoice_number or "").strip())
+    has_invoice_document = bool((order.invoice_document_path or "").strip())
+    if order.invoice_date is not None and has_invoice_number and has_invoice_document:
         return "invoiced"
+    if (order.invoice_date is not None or has_invoice_number) and not has_invoice_document:
+        return "document_missing"
     return "draft"
 
 
 def order_status_label(order: Order) -> str:
     return {
         "draft": "Entwurf",
+        "document_missing": "Dokument fehlt",
         "invoiced": "Abgerechnet",
     }[order_status_key(order)]
 
@@ -158,6 +163,30 @@ class OrderService:
             session.add(order)
             session.commit()
 
+    def set_invoice_document(self, *, order_id: int, document_path: str, original_filename: str) -> str | None:
+        normalized_document_path = (document_path or "").strip()
+        normalized_original_filename = (original_filename or "").strip()
+        if not normalized_document_path:
+            raise ValueError("Rechnungsdokument fehlt")
+        if not normalized_original_filename:
+            raise ValueError("Dateiname fehlt")
+
+        with Session(self._engine) as session:
+            order = session.get(Order, order_id)
+            if order is None:
+                raise ValueError("Verkauf nicht gefunden")
+            if order.deleted_at is not None:
+                raise ValueError("Gelöschter Verkauf kann nicht bearbeitet werden")
+
+            old_document_path = order.invoice_document_path
+            order.invoice_document_path = normalized_document_path
+            order.invoice_document_original_filename = normalized_original_filename
+            order.invoice_document_uploaded_at = datetime.now(timezone.utc)
+            order.updated_at = datetime.now(timezone.utc)
+            session.add(order)
+            session.commit()
+            return old_document_path
+
     def hard_delete(self, order_id: int) -> None:
         with Session(self._engine) as session:
             order = session.get(Order, order_id)
@@ -272,5 +301,9 @@ class OrderService:
                 raise ValueError(f"Projekt in Position {item.position} nicht gefunden")
 
     def _ensure_order_can_be_deleted(self, order: Order) -> None:
-        if order.invoice_date is not None or (order.invoice_number or "").strip():
-            raise ValueError("Abgerechnete Verkäufe können nicht gelöscht oder archiviert werden")
+        if (
+            order.invoice_date is not None
+            or (order.invoice_number or "").strip()
+            or (order.invoice_document_path or "").strip()
+        ):
+            raise ValueError("Verkäufe mit Rechnungsdaten oder Rechnungsdokument können nicht gelöscht oder archiviert werden")

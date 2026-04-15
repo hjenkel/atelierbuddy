@@ -1,6 +1,6 @@
 # Architekturentscheidungen
 
-Version-Single-Source: `pyproject.toml` (`0.2`)
+Version-Single-Source: `pyproject.toml` (`0.2.1`)
 
 ## 1. Lokal-first und self-hosted
 Entscheidung:
@@ -54,26 +54,38 @@ Warum:
 - deckt den praktischen Kernworkflow bereits gut ab
 
 Konsequenz:
-- spätere Erweiterungen wie Zahlungseingänge, Teilzahlungen oder Dokumenterzeugung können ein eigenes Modell erfordern
+- spätere Erweiterungen wie Zahlungseingänge, Teilzahlungen oder automatische Dokumenterzeugung können ein eigenes Modell erfordern
 
-## 6. Einnahmenauswertung nach Rechnungsdatum
+## 6. Rechnungsdokument direkt am Verkauf
+Entscheidung:
+- ein Verkauf kann genau ein Rechnungsdokument referenzieren
+- Upload/Ersetzen passiert direkt auf der Verkaufsdetailseite
+- kein OCR, kein ImportBatch und keine Beleg-Erstellung für diese Datei
+
+Warum:
+- Ausgangsrechnungen sollen nachvollziehbar mit Datei abgelegt werden
+- die Datei ist Teil des Verkaufsstatus, aber kein eigener Belegworkflow
+
+## 7. Einnahmenauswertung nach Rechnungsdatum
+
 Entscheidung:
 - der Einnahmenreport wertet aktuell nach `invoice_date` aus
 - nicht nach Zahlungseingängen
+- nicht nach Dokumentstatus
 
 Warum:
 - es gibt derzeit keine separate Zahlungstabelle
 - der Report bleibt dadurch fachlich konsistent zum vorhandenen Datenmodell
 
-## 7. Löschschutz für abgerechnete Verkäufe
+## 8. Löschschutz für fakturabezogene Verkäufe
 Entscheidung:
-- Verkäufe mit `invoice_date` oder `invoice_number` können weder archiviert noch endgültig gelöscht werden
+- Verkäufe mit `invoice_date`, `invoice_number` oder Rechnungsdokument können weder archiviert noch endgültig gelöscht werden
 
 Warum:
 - schützt vor dem Entfernen bereits fakturierter Vorgänge
 - passt besser zu kaufmännischer Nachvollziehbarkeit als ein freies Löschen
 
-## 8. Personenzentrierte Kontakte
+## 9. Personenzentrierte Kontakte
 Entscheidung:
 - Kontakte bleiben personenzentriert
 - mindestens Vorname oder Nachname ist erforderlich
@@ -82,7 +94,7 @@ Warum:
 - passt zum bestehenden UI- und Datenmodell
 - vermeidet eine zweite Organisationslogik im Kontaktbereich
 
-## 9. OCR im Hintergrund
+## 10. OCR im Hintergrund
 Entscheidung:
 - OCR läuft über `OCRJobQueue` im Worker-Thread
 
@@ -90,7 +102,7 @@ Warum:
 - lange OCR-Läufe blockieren die UI nicht
 - Statuswechsel bleiben nachvollziehbar
 
-## 10. FTS5 für lokale Suche
+## 11. FTS5 für lokale Suche
 Entscheidung:
 - Volltextsuche über SQLite FTS5
 
@@ -98,7 +110,7 @@ Warum:
 - gute lokale Suchperformance
 - kein externer Suchdienst nötig
 
-## 11. Integer-Cents und Decimal-Mengen
+## 12. Integer-Cents und Decimal-Mengen
 Entscheidung:
 - Geldwerte als Integer-Cents
 - Verkaufsmengen als Decimal mit drei Nachkommastellen
@@ -107,7 +119,7 @@ Warum:
 - robuste Rundung und Summenbildung
 - praxistauglich für Stückzahlen, Zeiten und Teilmengen
 
-## 12. Pragmatic Security statt Enterprise-Stack
+## 13. Pragmatic Security statt Enterprise-Stack
 Entscheidung:
 - Setup-Token, Login, Argon2id, Session-Timeouts, Host-/Origin-Prüfung und Upload-Härtung als Basis
 

@@ -134,6 +134,35 @@ async def save_uploaded_to_archive(file_upload: "FileUpload") -> Path:
     return destination
 
 
+async def save_uploaded_order_invoice(file_upload: "FileUpload", order_id: int) -> Path:
+    _ensure_safe_filename(file_upload.name)
+    if order_id <= 0:
+        raise ValueError("Verkauf nicht gefunden")
+    suffix = Path(file_upload.name).suffix.lower()
+    if suffix not in SUPPORTED_EXTENSIONS:
+        raise ValueError(f"Nicht unterstützter Dateityp: {file_upload.name}")
+    try:
+        upload_size = int(file_upload.size())
+    except Exception:
+        upload_size = 0
+    if upload_size > int(settings.max_upload_bytes):
+        raise ValueError(f"Datei zu groß (max. {settings.max_upload_mb} MB)")
+
+    timestamp = datetime.now().strftime("%Y/%m")
+    target_dir = settings.order_invoices_dir / timestamp
+    target_dir.mkdir(parents=True, exist_ok=True)
+
+    unique_name = f"order_{order_id}_{uuid.uuid4().hex}{suffix}"
+    destination = target_dir / unique_name
+    await file_upload.save(destination)
+    try:
+        validate_receipt_file(destination)
+    except Exception:
+        destination.unlink(missing_ok=True)
+        raise
+    return destination
+
+
 async def save_uploaded_work_cover(file_upload: "FileUpload", work_id: int) -> Path:
     _ensure_safe_filename(file_upload.name)
     suffix = Path(file_upload.name).suffix.lower()

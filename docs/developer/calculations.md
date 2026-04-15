@@ -1,7 +1,7 @@
 # Berechnungen und Validierung
 
 Quelle: `belegmanager/ui/pages.py`, `belegmanager/services/receipt_service.py`, `belegmanager/services/cost_allocation_service.py`, `belegmanager/services/order_service.py`, `belegmanager/services/report_service.py`  
-Version-Single-Source: `pyproject.toml` (`0.2`)
+Version-Single-Source: `pyproject.toml` (`0.2.1`)
 
 ## Geldwerte und Parsing
 Geld wird als Integer-Cents gespeichert.
@@ -85,11 +85,12 @@ Rechnungsnummer:
 
 ## Statuslogik für Verkäufe
 Der Status wird nicht gespeichert, sondern aus Feldern abgeleitet:
-- `Entwurf`: kein `invoice_date`
-- `Abgerechnet`: `invoice_date` gesetzt
+- `Entwurf`: keine relevanten Rechnungsdaten oder noch kein vollständiger Rechnungsstand
+- `Dokument fehlt`: Rechnungsdatum oder Rechnungsnummer vorhanden, aber keine Rechnungsdatei
+- `Abgerechnet`: Rechnungsdatum, Rechnungsnummer und Rechnungsdatei vorhanden
 
 Zusätzliche Schutzregel:
-- sobald `invoice_date` oder `invoice_number` gesetzt ist, kann der Verkauf nicht mehr gelöscht oder archiviert werden
+- sobald `invoice_date`, `invoice_number` oder Rechnungsdatei gesetzt ist, kann der Verkauf nicht mehr gelöscht oder archiviert werden
 
 ## Report-Logik
 Ausgabenreport:
@@ -103,6 +104,7 @@ Einnahmenreport:
 - berücksichtigt nur aktive Verkäufe mit `invoice_date`
 - mindestens eine Position ist erforderlich
 - Aggregation läuft nach `invoice_date`
+- die Auswertung ist bewusst unabhängig vom Dokumentstatus
 - Drilldown erfolgt über Projekte
 - Positionen ohne Projekt laufen in den Bucket `Ohne Projekt`
 

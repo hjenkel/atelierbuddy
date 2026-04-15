@@ -20,7 +20,7 @@ from .fts import init_fts
 from .models import Contact, ContactCategory, CostAllocation, CostArea, CostSubcategory, CostType, Order, OrderItem
 
 settings.ensure_dirs()
-SCHEMA_VERSION = "v1.9"
+SCHEMA_VERSION = "v1.10"
 SCHEMA_MARKER = settings.data_dir / "schema_version.txt"
 
 engine = create_engine(
@@ -292,4 +292,13 @@ def _apply_additive_migrations(session: Session) -> None:
     order_columns = {str(row[1]).strip().casefold() for row in session.exec(text("PRAGMA table_info(sales_order)")).all()}
     if order_columns and "notes" not in order_columns:
         session.exec(text("ALTER TABLE sales_order ADD COLUMN notes TEXT"))
+        session.commit()
+    if order_columns and "invoice_document_path" not in order_columns:
+        session.exec(text("ALTER TABLE sales_order ADD COLUMN invoice_document_path TEXT"))
+        session.commit()
+    if order_columns and "invoice_document_original_filename" not in order_columns:
+        session.exec(text("ALTER TABLE sales_order ADD COLUMN invoice_document_original_filename TEXT"))
+        session.commit()
+    if order_columns and "invoice_document_uploaded_at" not in order_columns:
+        session.exec(text("ALTER TABLE sales_order ADD COLUMN invoice_document_uploaded_at TIMESTAMP"))
         session.commit()

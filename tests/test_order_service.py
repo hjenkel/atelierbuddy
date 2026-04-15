@@ -8,7 +8,7 @@ from sqlmodel import SQLModel, Session, create_engine, select
 from belegmanager.models import Contact, ContactCategory, Order, Project
 from belegmanager.schemas import OrderItemInput
 from belegmanager.services.order_search_service import OrderSearchService
-from belegmanager.services.order_service import OrderService, order_item_total_cents
+from belegmanager.services.order_service import OrderService, order_item_total_cents, order_status_key, order_status_label
 
 
 def _build_services() -> tuple[OrderService, OrderSearchService, object]:
@@ -241,6 +241,11 @@ def test_order_search_filters_by_status_and_project() -> None:
             )
         ],
     )
+    service.set_invoice_document(
+        order_id=invoiced_order.id or 0,
+        document_path="/tmp/re-2026-02.pdf",
+        original_filename="re-2026-02.pdf",
+    )
 
     invoiced_results = search_service.search(statuses=["invoiced"])
     project_results = search_service.search(project_ids=[second_project_id])
@@ -252,6 +257,89 @@ def test_order_search_filters_by_status_and_project() -> None:
         stored_order = session.exec(select(Order).where(Order.id == invoiced_order.id)).first()
     assert stored_order is not None
     assert stored_order.invoice_number == "RE-2026-02"
+
+
+def test_order_status_distinguishes_draft_missing_document_and_invoiced() -> None:
+    service, search_service, engine = _build_services()
+    contact_id, project_id = _seed_contact_and_project(engine)
+    draft_order = service.create_order(contact_id=contact_id, sale_date=date(2026, 1, 10))
+    document_missing_order = service.create_order(contact_id=contact_id, sale_date=date(2026, 1, 11))
+    invoiced_order = service.create_order(contact_id=contact_id, sale_date=date(2026, 1, 12))
+
+    service.save_order(
+        order_id=draft_order.id or 0,
+        contact_id=contact_id,
+        sale_date=date(2026, 1, 10),
+        invoice_date=None,
+        invoice_number=None,
+        notes=None,
+        items=[
+            OrderItemInput(
+                description="Entwurf",
+                quantity=Decimal("1.000"),
+                unit_price_cents=12000,
+                project_id=project_id,
+                position=1,
+            )
+        ],
+    )
+    service.save_order(
+        order_id=document_missing_order.id or 0,
+        contact_id=contact_id,
+        sale_date=date(2026, 1, 11),
+        invoice_date=None,
+        invoice_number="RE-2026-11",
+        notes=None,
+        items=[
+            OrderItemInput(
+                description="Dokument fehlt",
+                quantity=Decimal("1.000"),
+                unit_price_cents=12000,
+                project_id=project_id,
+                position=1,
+            )
+        ],
+    )
+    service.save_order(
+        order_id=invoiced_order.id or 0,
+        contact_id=contact_id,
+        sale_date=date(2026, 1, 12),
+        invoice_date=date(2026, 1, 13),
+        invoice_number="RE-2026-12",
+        notes=None,
+        items=[
+            OrderItemInput(
+                description="Abgerechnet",
+                quantity=Decimal("1.000"),
+                unit_price_cents=12000,
+                project_id=project_id,
+                position=1,
+            )
+        ],
+    )
+    service.set_invoice_document(
+        order_id=invoiced_order.id or 0,
+        document_path="/tmp/re-2026-12.pdf",
+        original_filename="re-2026-12.pdf",
+    )
+
+    with Session(engine) as session:
+        stored_draft = session.get(Order, draft_order.id)
+        stored_missing = session.get(Order, document_missing_order.id)
+        stored_invoiced = session.get(Order, invoiced_order.id)
+
+    assert stored_draft is not None
+    assert stored_missing is not None
+    assert stored_invoiced is not None
+    assert order_status_key(stored_draft) == "draft"
+    assert order_status_label(stored_draft) == "Entwurf"
+    assert order_status_key(stored_missing) == "document_missing"
+    assert order_status_label(stored_missing) == "Dokument fehlt"
+    assert order_status_key(stored_invoiced) == "invoiced"
+    assert order_status_label(stored_invoiced) == "Abgerechnet"
+
+    missing_results = search_service.search(statuses=["document_missing"])
+    assert [item.id for item in missing_results] == [document_missing_order.id]
 
 
 def test_invoiced_order_cannot_be_moved_to_trash_or_hard_deleted() -> None:
@@ -328,3 +416,30 @@ def test_order_with_invoice_number_only_cannot_be_moved_to_trash_or_hard_deleted
         assert "nicht gelöscht oder archiviert" in str(exc)
     else:
         raise AssertionError("expected ValueError for hard deleting numbered order")
+
+
+def test_order_with_invoice_document_only_cannot_be_moved_to_trash_or_hard_deleted() -> None:
+    service, _, engine = _build_services()
+    contact_id, _ = _seed_contact_and_project(engine)
+    order = service.create_order(contact_id=contact_id, sale_date=date(2026, 1, 10))
+
+    old_path = service.set_invoice_document(
+        order_id=order.id or 0,
+        document_path="/tmp/rechnung.pdf",
+        original_filename="rechnung.pdf",
+    )
+    assert old_path is None
+
+    try:
+        service.move_to_trash(order.id or 0)
+    except ValueError as exc:
+        assert "nicht gelöscht oder archiviert" in str(exc)
+    else:
+        raise AssertionError("expected ValueError for archiving order with document")
+
+    try:
+        service.hard_delete(order.id or 0)
+    except ValueError as exc:
+        assert "nicht gelöscht oder archiviert" in str(exc)
+    else:
+        raise AssertionError("expected ValueError for hard deleting order with document")

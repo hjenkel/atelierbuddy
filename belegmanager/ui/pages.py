@@ -28,7 +28,13 @@ from ..db import engine
 from ..models import Contact, ContactCategory, CostAllocation, CostSubcategory, CostType, Order, OrderItem, Project, Receipt, Supplier
 from ..schemas import AllocationInput, OrderItemInput
 from ..services.order_service import QUANTITY_STEP, order_item_total_cents, order_status_key, order_status_label, order_total_cents
-from ..utils.storage import is_supported_filename, save_uploaded_work_cover, safe_delete_file, to_files_url
+from ..utils.storage import (
+    is_supported_filename,
+    save_uploaded_order_invoice,
+    save_uploaded_work_cover,
+    safe_delete_file,
+    to_files_url,
+)
 
 DOC_TYPE_INVOICE = "invoice"
 DOC_TYPE_CREDIT_NOTE = "credit_note"
@@ -81,9 +87,9 @@ _HELP_CONTENT_BY_PATH: dict[str, dict[str, str]] = {
     },
     "/verkaeufe": {
         "title": "Hilfe · Verkäufe",
-        "body": "Hier pflegst du deine Ausgangsrechnungen und offenen beziehungsweise bezahlten Verkäufe. "
-        "Positionen bleiben bewusst einfach und projektbezogen, damit du sie schnell erfassen und "
-        "später in der Auswertung als Einnahmen wiederfinden kannst.",
+        "body": "Hier pflegst du deine Verkäufe und Ausgangsrechnungen mit Positionen, Rechnungsdaten "
+        "und optionalem Rechnungsdokument. Als abgerechnet gilt ein Verkauf erst, wenn Rechnungsdatum, "
+        "Rechnungsnummer und Dokument vorhanden sind.",
     },
     "/projekte": {
         "title": "Hilfe · Projekte",
@@ -2519,6 +2525,7 @@ def register_pages(services: ServiceContainer) -> None:
                     status_select = ui.select(
                         {
                             "draft": "Entwurf",
+                            "document_missing": "Dokument fehlt",
                             "invoiced": "Abgerechnet",
                         },
                         label="Status",
@@ -2722,7 +2729,11 @@ def register_pages(services: ServiceContainer) -> None:
                         rows: list[dict[str, Any]] = []
                         for order in orders:
                             status_key = order_status_key(order)
-                            locked = order.invoice_date is not None or bool((order.invoice_number or "").strip())
+                            locked = (
+                                order.invoice_date is not None
+                                or bool((order.invoice_number or "").strip())
+                                or bool((order.invoice_document_path or "").strip())
+                            )
                             rows.append(
                                 {
                                     "id": order.id,
@@ -2734,7 +2745,8 @@ def register_pages(services: ServiceContainer) -> None:
                                     "status": order_status_label(order),
                                     "status_color": {
                                         "draft": "grey-6",
-                                        "invoiced": "warning",
+                                        "document_missing": "warning",
+                                        "invoiced": "positive",
                                     }[status_key],
                                     "total": _format_cents(order_total_cents(order.items), settings.default_currency),
                                     "deleted": bool(order.deleted_at),
@@ -2867,7 +2879,12 @@ def register_pages(services: ServiceContainer) -> None:
             contact_map = {contact.id: _contact_display_name(contact) for contact in contacts if contact.id is not None}
             project_map = {project.id: project.name for project in projects if project.id is not None}
             is_deleted = order.deleted_at is not None
-            is_locked_for_delete = order.invoice_date is not None or bool((order.invoice_number or "").strip())
+            is_locked_for_delete = (
+                order.invoice_date is not None
+                or bool((order.invoice_number or "").strip())
+                or bool((order.invoice_document_path or "").strip())
+            )
+            invoice_document_url = to_files_url(order.invoice_document_path)
 
             item_rows: list[dict[str, Any]] = []
             if order.items:
@@ -2886,6 +2903,33 @@ def register_pages(services: ServiceContainer) -> None:
                 item_rows.append({"description": "", "quantity_text": "1", "unit_price_text": "", "project_id": None})
             project_mode_enabled = _uses_position_project_mode(item_rows)
 
+            async def handle_invoice_document_upload(event: events.MultiUploadEventArguments) -> None:
+                if not event.files:
+                    return
+                file_upload = event.files[0]
+                new_document_path: Path | None = None
+                try:
+                    new_document_path = await save_uploaded_order_invoice(file_upload, oid)
+                    old_document_path = services.order_service.set_invoice_document(
+                        order_id=oid,
+                        document_path=str(new_document_path),
+                        original_filename=file_upload.name,
+                    )
+                    if old_document_path and old_document_path != str(new_document_path):
+                        safe_delete_file(old_document_path)
+                    ui.notify("Rechnungsdokument gespeichert", type="positive")
+                    ui.navigate.to(f"/verkaeufe/{oid}")
+                except Exception as exc:
+                    if new_document_path is not None:
+                        safe_delete_file(new_document_path)
+                    _notify_error("Rechnungsdokument konnte nicht gespeichert werden", exc)
+
+            def open_invoice_document() -> None:
+                if not invoice_document_url:
+                    ui.notify("Kein Rechnungsdokument vorhanden", type="warning")
+                    return
+                ui.run_javascript(f"window.open({json.dumps(invoice_document_url)}, '_blank', 'noopener')")
+
             with ui.card().classes("bm-card p-4 w-full gap-4"):
                 with ui.row().classes("bm-detail-toolbar w-full items-center justify-between"):
                     with ui.row().classes("items-center gap-2"):
@@ -2901,6 +2945,26 @@ def register_pages(services: ServiceContainer) -> None:
                                 on_click=lambda: _detail_move_to_deleted(),
                             ).props("flat round dense").classes("bm-icon-action-btn bm-icon-action-btn--danger")
                             delete_btn.tooltip("In Gelöschte Verkäufe")
+                        if invoice_document_url:
+                            view_document_btn = ui.button(
+                                "Dokument anzeigen",
+                                icon="visibility",
+                                on_click=open_invoice_document,
+                            ).props("flat no-caps").classes("bm-toolbar-action-btn")
+                        if not is_deleted:
+                            document_upload = ui.upload(
+                                multiple=False,
+                                auto_upload=True,
+                                on_multi_upload=handle_invoice_document_upload,
+                                label="",
+                            ).classes("bm-hidden-upload")
+                            document_upload.props("accept=.pdf,.jpg,.jpeg,.png,.heic,.heif")
+                            upload_label = "Dokument ersetzen" if invoice_document_url else "Dokument hochladen"
+                            ui.button(
+                                upload_label,
+                                icon="upload_file",
+                                on_click=lambda: document_upload.run_method("pickFiles"),
+                            ).props("flat no-caps").classes("bm-toolbar-action-btn")
                         if not is_deleted:
                             save_btn = ui.button(
                                 icon="save",
@@ -2998,8 +3062,13 @@ def register_pages(services: ServiceContainer) -> None:
                     head_project_input.value = _common_project_id_from_rows(item_rows)
 
                 def current_status_label() -> str:
-                    if _parse_iso_date(invoice_date_input.value):
+                    has_invoice_number = bool((invoice_number_input.value or "").strip())
+                    has_invoice_date = _parse_iso_date(invoice_date_input.value) is not None
+                    has_invoice_document = bool(invoice_document_url)
+                    if has_invoice_date and has_invoice_number and has_invoice_document:
                         return "Abgerechnet"
+                    if (has_invoice_date or has_invoice_number) and not has_invoice_document:
+                        return "Dokument fehlt"
                     return "Entwurf"
 
                 def apply_project_mode_visibility() -> None:
@@ -3197,6 +3266,7 @@ def register_pages(services: ServiceContainer) -> None:
                 head_project_input.on_value_change(lambda _: apply_head_project())
                 project_mode_input.on("update:model-value", lambda _: on_project_mode_change())
                 invoice_date_input.on("update:model-value", lambda _: refresh_total_preview())
+                invoice_number_input.on("update:model-value", lambda _: refresh_total_preview())
                 apply_project_mode_visibility()
                 render_item_editor()
                 refresh_total_preview()
@@ -4599,10 +4669,10 @@ def register_pages(services: ServiceContainer) -> None:
                             project_id=selected_income_project_id,
                         )
                         title = selected_income_project_name or "Ausgewähltes Projekt"
-                        ui.label(f"Abgerechnete Verkäufe zu: {title}").classes("text-base font-semibold bm-report-title")
+                        ui.label(f"Verkäufe mit Rechnungsdatum zu: {title}").classes("text-base font-semibold bm-report-title")
                         if not rows_raw:
                             with ui.card().classes("bm-card p-3"):
-                                ui.label("Keine abgerechneten Verkäufe im Zeitraum.")
+                                ui.label("Keine Verkäufe mit Rechnungsdatum im Zeitraum.")
                             return
 
                         rows = [
@@ -4647,12 +4717,12 @@ def register_pages(services: ServiceContainer) -> None:
                     income_report = services.report_service.build_income_summary(current_from, current_to)
                     with income_summary_container:
                         with ui.card().classes("bm-card p-3"):
-                            ui.label("Abgerechnete Verkäufe").classes("text-sm font-semibold")
+                            ui.label("Verkäufe mit Rechnungsdatum").classes("text-sm font-semibold")
                             ui.label(_format_cents(income_report.overall_total_cents, settings.default_currency)).classes(
                                 f"text-2xl font-bold {income_amount_class(income_report.overall_total_cents)}"
                             )
                             ui.label(
-                                f"Auswertung nach Rechnungsdatum · {income_report.order_count} abgerechnete Verkäufe"
+                                f"Auswertung nach Rechnungsdatum · {income_report.order_count} Verkäufe"
                             ).classes("text-xs text-slate-600")
 
                     with income_projects_container:

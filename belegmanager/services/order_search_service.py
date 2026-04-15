@@ -28,7 +28,7 @@ class OrderSearchService:
     ) -> list[Order]:
         contact_ids = contact_ids or []
         project_ids = project_ids or []
-        statuses = [item for item in (statuses or []) if item in {"draft", "invoiced"}]
+        statuses = [item for item in (statuses or []) if item in {"draft", "document_missing", "invoiced"}]
         query_value = (query or "").strip().casefold()
 
         with Session(self._engine) as session:

@@ -1,7 +1,7 @@
 # Prozesse und Flows
 
 Quelle: `belegmanager/services/*`, `belegmanager/ui/pages.py`, `belegmanager/app_state.py`  
-Version-Single-Source: `pyproject.toml` (`0.2`)
+Version-Single-Source: `pyproject.toml` (`0.2.1`)
 
 ## Service-Architektur
 `app_state.get_services()` baut einen gemeinsamen Service-Container mit:
@@ -59,6 +59,13 @@ Harte Regeln:
 - jede Position braucht Bezeichnung, Menge und Einzelpreis
 - Projekt pro Position ist optional
 
+Rechnungsdokument:
+- Upload/Ersetzen passiert direkt auf der Verkaufsdetailseite
+- genau eine Datei pro Verkauf
+- erlaubte Dateitypen entsprechen Belegen
+- kein OCR, kein ImportBatch, kein Thumbnail
+- `Abgerechnet` ist erst erreicht, wenn Rechnungsdatum, Rechnungsnummer und Datei vorhanden sind
+
 ## Flow 4: Suchen und Filtern
 ### Belege
 `SearchService.search(...)` kombiniert:
@@ -84,7 +91,7 @@ Harte Regeln:
 - Hard-Delete entfernt Verkauf und Positionen
 
 Zusätzliche Schutzregel:
-- Verkäufe mit `invoice_date` oder `invoice_number` dürfen weder archiviert noch gelöscht werden
+- Verkäufe mit `invoice_date`, `invoice_number` oder Rechnungsdokument dürfen weder archiviert noch gelöscht werden
 
 ## Flow 6: Stammdatenpflege
 `MasterDataService` verwaltet:
@@ -118,6 +125,7 @@ Ausgabe:
 - nicht gelöscht
 - `invoice_date` gesetzt
 - mindestens eine Position
+- Dokumentstatus ist für die Auswertung nicht ausschlaggebend
 
 Ausgabe:
 - Gesamtsumme

@@ -2,7 +2,7 @@
 
 Lokale Web-App für Belegverwaltung, Ausgangsrechnungen und betriebliche Auswertungen in kreativen Arbeitskontexten.
 
-Aktuelle Version: `0.2` (pre-alpha)
+Aktuelle Version: `0.2.1` (pre-alpha)
 
 ## Was ist Atelier Buddy?
 Atelier Buddy richtet sich an Künstler:innen, Bands und andere Solo- oder Kleinstteams, die Belege, Kontakte, Projekte und Verkäufe an einem Ort pflegen möchten, ohne in klassische ERP- oder Steuerkanzlei-Software zu wechseln.
@@ -31,6 +31,7 @@ Die App ist heute mehr als ein "einfacher Belegsammler": Sie verbindet Dokumenta
 - Kostenzuordnung pro Beleg mit Standardmodus oder Split-Aufteilung
 - Stammdaten für Projekte, Kontakte, Kontaktkategorien, Anbieter und Kostenkategorien
 - Verkaufsverwaltung mit internem Nummernkreis, manueller Rechnungsnummer und Positionszeilen
+- Rechnungsdokument je Verkauf mit direktem Upload/Ersetzen in der Detailansicht
 - projektbezogene Verkaufspositionen mit Dezimalmengen und berechneten Zeilensummen
 - Einnahmenauswertung nach Rechnungsdatum und Projektdrilldown
 - Soft-Delete für Belege und Verkäufe, inklusive Wiederherstellung

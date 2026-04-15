@@ -1,7 +1,7 @@
 # Datenbankstruktur
 
 Quelle: `belegmanager/models.py`, `belegmanager/db.py`, `belegmanager/fts.py`  
-Version-Single-Source: `pyproject.toml` (`0.2`)
+Version-Single-Source: `pyproject.toml` (`0.2.1`)
 
 ## Überblick
 Atelier Buddy nutzt SQLite mit SQLModel/SQLAlchemy. Das Datenmodell ist auf lokale Nutzung, überschaubare Betriebsgröße und schnelle Iteration ausgelegt.
@@ -46,10 +46,11 @@ Verkaufskopf mit:
 - Verkaufsdatum
 - optionalem Rechnungsdatum
 - optionaler, eindeutiger Rechnungsnummer
+- optionalem Rechnungsdokument mit Originaldateiname und Upload-Zeitpunkt
 - Notiz
 - Soft-Delete
 
-In v0.2 gibt es kein separates Rechnungsobjekt. Verkauf und Ausgangsrechnung sind derselbe Datensatz.
+In v0.2 gibt es kein separates Rechnungsobjekt. Verkauf und Ausgangsrechnung sind derselbe Datensatz; die Rechnungsdatei hängt direkt am Verkauf.
 
 ### `sales_order_item`
 Positionszeilen eines Verkaufs mit:
@@ -69,6 +70,11 @@ Die Verkaufssumme wird nicht separat gespeichert, sondern aus diesen Positionen 
 - `cost_type` und `cost_subcategory`: fachliche Kostenstruktur
 - `cost_area`: technische Kostenstellenstruktur, derzeit UI-seitig weitgehend verborgen
 
+### Dateiablage
+- Belege liegen unter `data/archive/originals`.
+- Verkaufs-Rechnungsdokumente liegen unter `data/archive/order_invoices`.
+- `/files/...` liefert beide Dateitypen aus dem Archiv aus.
+
 ### Auth-Tabellen
 - `app_user`: lokale Benutzerkonten
 - `auth_attempt`: Login-Versuche für Monitoring und Lockout
@@ -77,6 +83,7 @@ Die Verkaufssumme wird nicht separat gespeichert, sondern aus diesen Positionen 
 - Kontakte können nicht gelöscht werden, solange Verkäufe auf sie referenzieren.
 - Projekte können nicht gelöscht werden, solange Beleg-Zuordnungen oder Verkaufspositionen auf sie zeigen.
 - Rechnungsnummern sind eindeutig.
+- Verkäufe mit Rechnungsdatum, Rechnungsnummer oder Rechnungsdokument können nicht gelöscht oder archiviert werden.
 - Soft-Delete wird für `receipt` und `sales_order` verwendet.
 
 ## Technische Konventionen

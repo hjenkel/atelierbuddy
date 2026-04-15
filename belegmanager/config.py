@@ -20,6 +20,7 @@ class Settings:
     normalized_dir: Path
     ocr_dir: Path
     thumbs_dir: Path
+    order_invoices_dir: Path
     works_cover_dir: Path
     app_host: str = "127.0.0.1"
     app_port: int = 8080
@@ -44,6 +45,7 @@ class Settings:
             self.normalized_dir,
             self.ocr_dir,
             self.thumbs_dir,
+            self.order_invoices_dir,
             self.works_cover_dir,
         ):
             directory.mkdir(parents=True, exist_ok=True)
@@ -95,6 +97,7 @@ settings = Settings(
     normalized_dir=DATA_DIR / "archive" / "normalized",
     ocr_dir=DATA_DIR / "archive" / "ocr",
     thumbs_dir=DATA_DIR / "archive" / "thumbs",
+    order_invoices_dir=DATA_DIR / "archive" / "order_invoices",
     works_cover_dir=DATA_DIR / "archive" / "work_covers",
     app_host=_env_str("BM_HOST", "127.0.0.1"),
     app_port=_env_int("BM_PORT", 8080),
