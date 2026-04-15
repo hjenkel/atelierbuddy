@@ -723,6 +723,15 @@ def apply_theme() -> None:
           box-shadow: var(--bm-shadow-soft) !important;
         }
 
+        .q-btn.bm-icon-action-btn,
+        .q-btn.bm-icon-action-btn .q-icon,
+        .q-btn.bm-icon-action-btn .q-btn__content,
+        .q-btn.bm-icon-action-btn .q-btn__content *,
+        .q-btn.bm-icon-action-btn.text-primary,
+        .q-btn.bm-icon-action-btn .text-primary {
+          color: var(--bm-text) !important;
+        }
+
         .bm-icon-action-btn--primary {
           background: var(--bm-primary) !important;
           color: #fff !important;
