@@ -69,6 +69,7 @@ def apply_theme() -> None:
           --bm-shadow: 4px 4px 0 var(--bm-border);
           --bm-shadow-soft: 2px 2px 0 var(--bm-border);
           --bm-header-height: 46px;
+          --bm-field-height: 56px;
           --bm-field-label-offset-x: 2px;
           --q-primary: var(--bm-primary);
           --q-secondary: var(--bm-accent-play-1);
@@ -491,8 +492,17 @@ def apply_theme() -> None:
           border-radius: 8px !important;
           background: var(--bm-surface-strong) !important;
           box-shadow: none !important;
-          min-height: 44px !important;
+          min-height: var(--bm-field-height) !important;
           padding: 0 12px !important;
+          box-sizing: border-box !important;
+        }
+
+        .q-field:not(.q-textarea) .q-field__control {
+          height: var(--bm-field-height) !important;
+        }
+
+        .q-field.q-textarea .q-field__control {
+          height: auto !important;
         }
 
         /* Label bündig zum Eingabetext mit kleinem optischen Offset */
@@ -636,12 +646,8 @@ def apply_theme() -> None:
           border: 2px solid var(--bm-border);
         }
 
-        .bm-order-meta-field .q-field__control {
-          min-height: 56px !important;
-        }
-
         .bm-order-project-toggle {
-          min-height: 56px;
+          min-height: var(--bm-field-height);
           padding: 0 12px;
           border-radius: 10px;
           background: var(--bm-surface-strong);
@@ -650,7 +656,7 @@ def apply_theme() -> None:
         }
 
         .bm-order-project-toggle .q-toggle {
-          min-height: 52px;
+          min-height: calc(var(--bm-field-height) - 4px);
           display: inline-flex;
           align-items: center;
           gap: 10px;
@@ -855,16 +861,16 @@ def apply_theme() -> None:
 
         /* Filterfelder sollen nebeneinander dieselbe Außenhöhe haben, ohne Label/Wert zu quetschen. */
         .bm-filter-field {
-          min-height: 52px;
+          min-height: var(--bm-field-height);
         }
 
         .bm-filter-field .q-field__inner {
-          min-height: 52px;
+          min-height: var(--bm-field-height);
         }
 
         .bm-filter-field .q-field__control {
-          min-height: 52px !important;
-          height: 52px !important;
+          min-height: var(--bm-field-height) !important;
+          height: var(--bm-field-height) !important;
         }
 
         .bm-upload-zone {
@@ -1095,12 +1101,12 @@ def apply_theme() -> None:
         }
 
         .q-btn.bm-inline-create-btn {
-          height: 56px !important;
-          min-height: 56px !important;
-          max-height: 56px !important;
-          width: 56px !important;
-          min-width: 56px !important;
-          max-width: 56px !important;
+          height: var(--bm-field-height) !important;
+          min-height: var(--bm-field-height) !important;
+          max-height: var(--bm-field-height) !important;
+          width: var(--bm-field-height) !important;
+          min-width: var(--bm-field-height) !important;
+          max-width: var(--bm-field-height) !important;
           padding: 0 !important;
           border-radius: 8px !important;
           border: 2px solid var(--bm-border) !important;
@@ -1117,21 +1123,21 @@ def apply_theme() -> None:
 
         .bm-allocation-line .q-field {
           margin-bottom: 0 !important;
-          min-height: 56px !important;
-          height: 56px !important;
+          min-height: var(--bm-field-height) !important;
+          height: var(--bm-field-height) !important;
         }
 
         .bm-allocation-main-field.q-field,
         .bm-allocation-side-field.q-field {
-          min-height: 56px !important;
-          height: 56px !important;
+          min-height: var(--bm-field-height) !important;
+          height: var(--bm-field-height) !important;
         }
 
         .bm-allocation-main-field .q-field__control,
         .bm-allocation-side-field .q-field__control,
         .bm-allocation-line .q-field__control {
-          min-height: 56px !important;
-          height: 56px !important;
+          min-height: var(--bm-field-height) !important;
+          height: var(--bm-field-height) !important;
         }
 
         .bm-allocation-line > * {
@@ -1139,9 +1145,9 @@ def apply_theme() -> None:
         }
 
         .bm-allocation-line .q-btn.bm-inline-create-btn {
-          height: 56px !important;
-          min-height: 56px !important;
-          max-height: 56px !important;
+          height: var(--bm-field-height) !important;
+          min-height: var(--bm-field-height) !important;
+          max-height: var(--bm-field-height) !important;
         }
 
         .bm-allocation-line {

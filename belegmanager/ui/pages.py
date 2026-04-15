@@ -2941,9 +2941,9 @@ def register_pages(services: ServiceContainer) -> None:
                             "bm-inline-switch bm-order-project-toggle"
                         )
                         project_mode_input.props("color=primary")
-                    total_preview = ui.input("Gesamt", value="-").props("readonly").classes("w-48 bm-order-meta-field")
+                    total_preview = ui.input("Gesamt", value="-").props("readonly").classes("w-48")
                     status_preview = ui.input("Status", value=order_status_label(order)).props("readonly").classes(
-                        "w-40 bm-order-meta-field"
+                        "w-40"
                     )
 
                 notes_input = ui.textarea("Notiz", value=order.notes or "").classes("w-full")
