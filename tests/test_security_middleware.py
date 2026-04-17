@@ -26,9 +26,7 @@ def _build_app(*, with_user: bool) -> FastAPI:
     SQLModel.metadata.create_all(engine)
     auth_service = AuthService(db_engine=engine)
     if with_user:
-        token = auth_service.setup_token()
-        assert token is not None
-        auth_service.create_initial_admin(username="admin", password="supersecure123", setup_token=token)
+        auth_service.create_initial_admin(username="admin", password="supersecure123")
 
     app = FastAPI()
     app.add_middleware(AuthRequiredMiddleware, auth_service=auth_service)
@@ -73,6 +71,19 @@ def test_auth_middleware_redirects_to_setup_when_no_user_exists() -> None:
     response = client.get("/belege", follow_redirects=False)
     assert response.status_code == 303
     assert response.headers["location"] == "/setup"
+
+
+def test_setup_route_is_public_only_until_first_user_exists() -> None:
+    client = TestClient(_build_app(with_user=False))
+    setup_response = client.get("/setup")
+    assert setup_response.status_code == 200
+    assert setup_response.text == "setup"
+
+    app = _build_app(with_user=True)
+    configured_client = TestClient(app)
+    configured_response = configured_client.get("/setup", follow_redirects=False)
+    assert configured_response.status_code == 303
+    assert configured_response.headers["location"] == "/login"
 
 
 def test_auth_middleware_redirects_to_login_and_allows_after_session() -> None:

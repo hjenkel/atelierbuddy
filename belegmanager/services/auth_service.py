@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import logging
 import re
-import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -14,8 +12,6 @@ from sqlmodel import Session, select
 from ..config import settings
 from ..db import engine
 from ..models import AppUser, AuthAttempt
-
-LOG = logging.getLogger(__name__)
 
 
 class AuthService:
@@ -34,7 +30,6 @@ class AuthService:
     def __init__(self, db_engine=engine) -> None:
         self._engine = db_engine
         self._password_hasher = PasswordHasher()
-        self._setup_token: str | None = None
 
     def has_users(self) -> bool:
         with Session(self._engine) as session:
@@ -43,22 +38,6 @@ class AuthService:
 
     def requires_setup(self) -> bool:
         return not self.has_users()
-
-    def ensure_setup_token(self) -> None:
-        if not self.requires_setup():
-            self._setup_token = None
-            return
-        if self._setup_token:
-            return
-        self._setup_token = secrets.token_urlsafe(24)
-        LOG.warning(
-            "Atelier Buddy Setup Token (nur einmalig bis erster Benutzer angelegt ist): %s",
-            self._setup_token,
-        )
-
-    def setup_token(self) -> str | None:
-        self.ensure_setup_token()
-        return self._setup_token
 
     def normalize_username(self, raw: str) -> str:
         username = (raw or "").strip()
@@ -83,15 +62,11 @@ class AuthService:
         *,
         username: str,
         password: str,
-        setup_token: str,
         client_ip: str | None = None,
         user_agent: str | None = None,
     ) -> AppUser:
-        self.ensure_setup_token()
         if not self.requires_setup():
             raise ValueError("Setup ist bereits abgeschlossen")
-        if not self._setup_token or not secrets.compare_digest(self._setup_token, (setup_token or "").strip()):
-            raise ValueError("Ungültiger Setup-Token")
 
         normalized_username = self.normalize_username(username)
         validated_password = self.validate_password(password)
@@ -127,7 +102,6 @@ class AuthService:
             session.commit()
             session.refresh(user)
 
-        self._setup_token = None
         return user
 
     def authenticate(

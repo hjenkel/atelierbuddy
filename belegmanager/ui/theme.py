@@ -512,7 +512,7 @@ def apply_theme() -> None:
 
         .bm-order-notes.q-field.q-textarea textarea {
           min-height: 74px !important;
-          resize: vertical;
+          resize: none !important;
         }
 
         /* Label bündig zum Eingabetext mit kleinem optischen Offset */

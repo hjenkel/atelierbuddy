@@ -21,7 +21,7 @@ Die UI soll Fachlogik nicht duplizieren, sondern diese Services verwenden.
 
 ## Laufzeit und Initialisierung
 Beim App-Start:
-1. Auth-Setup wird geprüft und bei Bedarf ein Setup-Token erzeugt.
+1. Auth-Setup wird geprüft; solange noch kein Benutzer existiert, ist `/setup` für die Ersteinrichtung erreichbar.
 2. Der OCR-Worker wird gestartet.
 3. Datenbank und Default-Daten werden initialisiert.
 4. Seiten und Sicherheitsmiddleware werden registriert.

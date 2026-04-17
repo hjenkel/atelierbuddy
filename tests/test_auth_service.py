@@ -21,10 +21,7 @@ class _RequestStub:
 
 def test_create_initial_admin_hashes_password_and_disables_setup() -> None:
     service, engine = _build_auth_service()
-    token = service.setup_token()
-    assert token
-
-    user = service.create_initial_admin(username="admin", password="supersecure123", setup_token=token)
+    user = service.create_initial_admin(username="admin", password="supersecure123")
     assert user.id is not None
     assert user.password_hash != "supersecure123"
     assert not service.requires_setup()
@@ -35,23 +32,21 @@ def test_create_initial_admin_hashes_password_and_disables_setup() -> None:
         assert stored.username == "admin"
 
 
-def test_create_initial_admin_rejects_wrong_setup_token() -> None:
+def test_create_initial_admin_rejects_when_setup_is_already_completed() -> None:
     service, _ = _build_auth_service()
-    token = service.setup_token()
-    assert token
+    service.create_initial_admin(username="admin", password="supersecure123")
+
     try:
-        service.create_initial_admin(username="admin", password="supersecure123", setup_token="wrong-token")
+        service.create_initial_admin(username="admin2", password="supersecure456")
     except ValueError as exc:
-        assert "Setup-Token" in str(exc)
+        assert "bereits abgeschlossen" in str(exc)
     else:
-        raise AssertionError("expected ValueError for wrong setup token")
+        raise AssertionError("expected ValueError when setup is already completed")
 
 
 def test_authenticate_locks_user_after_repeated_failures() -> None:
     service, engine = _build_auth_service()
-    token = service.setup_token()
-    assert token
-    service.create_initial_admin(username="artist", password="averysecurepass1", setup_token=token)
+    service.create_initial_admin(username="artist", password="averysecurepass1")
 
     for _ in range(service.MAX_FAILED_ATTEMPTS):
         assert (
@@ -76,9 +71,7 @@ def test_authenticate_locks_user_after_repeated_failures() -> None:
 
 def test_session_user_expires_for_idle_timeout() -> None:
     service, _ = _build_auth_service()
-    token = service.setup_token()
-    assert token
-    user = service.create_initial_admin(username="idleuser", password="averysecurepass2", setup_token=token)
+    user = service.create_initial_admin(username="idleuser", password="averysecurepass2")
 
     request = _RequestStub()
     service.start_session(request, user)
@@ -92,9 +85,7 @@ def test_session_user_expires_for_idle_timeout() -> None:
 
 def test_session_user_expires_for_absolute_timeout() -> None:
     service, _ = _build_auth_service()
-    token = service.setup_token()
-    assert token
-    user = service.create_initial_admin(username="ageduser", password="averysecurepass3", setup_token=token)
+    user = service.create_initial_admin(username="ageduser", password="averysecurepass3")
 
     request = _RequestStub()
     service.start_session(request, user)

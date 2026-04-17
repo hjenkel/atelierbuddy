@@ -24,7 +24,7 @@ Die App ist heute mehr als ein "einfacher Belegsammler": Sie verbindet Dokumenta
 - keine revisionssichere Buchhaltungs- oder Steuerlösung
 
 ## Kernfunktionen
-- Login-Schutz mit Setup-Token für die Ersteinrichtung
+- Login-Schutz mit einfacher Ersteinrichtung für den ersten Admin-Zugang
 - Batch-Import von PDF-, JPG-, PNG- und HEIC-Dateien
 - OCR mit `ocrmypdf` und Volltextsuche via SQLite FTS5
 - Belegdetail mit Brutto/USt/Netto, Anbieter, Typ, Notizen und Vollständigkeitsstatus
@@ -67,12 +67,8 @@ App-URL: `http://localhost:12321`
 ### Ersteinrichtung
 Beim ersten Start muss ein Admin-Account über `/setup` angelegt werden.
 
-1. Setup-Token aus den Logs lesen:
-   ```bash
-   docker compose logs -f atelier-buddy
-   ```
-2. `/setup` im Browser öffnen.
-3. Token eintragen und ersten Benutzer anlegen.
+1. `/setup` im Browser öffnen.
+2. Ersten Benutzer anlegen.
 
 ## Lokale Installation
 ### Voraussetzungen

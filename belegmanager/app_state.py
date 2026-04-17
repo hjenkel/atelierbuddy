@@ -41,7 +41,6 @@ def get_services() -> ServiceContainer:
         return _state
 
     auth_service = AuthService()
-    auth_service.ensure_setup_token()
 
     ocr_service = OCRService()
     job_queue = OCRJobQueue(ocr_service)

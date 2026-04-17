@@ -187,8 +187,6 @@ class AuthRequiredMiddleware:
             path = request.url.path or "/"
             method = request.method.upper()
             setup_required = self.auth_service.requires_setup()
-            if setup_required:
-                self.auth_service.ensure_setup_token()
 
             if is_public_path(path):
                 if setup_required and path == "/login":
@@ -234,7 +232,6 @@ class AuthRequiredMiddleware:
             if path.startswith("/_nicegui_ws"):
                 setup_required = self.auth_service.requires_setup()
                 if setup_required:
-                    self.auth_service.ensure_setup_token()
                     await _close_websocket(send, code=WS_FORBIDDEN_CODE)
                     return
 
@@ -300,7 +297,6 @@ def register_auth_routes(auth_service: AuthService) -> None:
             if auth_service.session_user(request):
                 return RedirectResponse("/belege", status_code=303)
             return RedirectResponse("/login", status_code=303)
-        auth_service.ensure_setup_token()
         return HTMLResponse(_setup_html(error_message=None), status_code=200)
 
     @app.post("/setup", include_in_schema=False)
@@ -311,14 +307,12 @@ def register_auth_routes(auth_service: AuthService) -> None:
         username = data.get("username", "")
         password = data.get("password", "")
         confirm_password = data.get("confirm_password", "")
-        setup_token = data.get("setup_token", "")
         if password != confirm_password:
             return HTMLResponse(_setup_html(error_message="Passwörter stimmen nicht überein."), status_code=400)
         try:
             user = auth_service.create_initial_admin(
                 username=username,
                 password=password,
-                setup_token=setup_token,
                 client_ip=_client_ip(request),
                 user_agent=request.headers.get("user-agent"),
             )
@@ -468,17 +462,6 @@ def _base_html(title: str, body: str) -> str:
       font-size: 0.92rem;
       font-weight: 600;
     }}
-    .token {{
-      background: #f7f5ff;
-      border: 1px dashed #b9a4ff;
-      color: #3f2588;
-      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-      border-radius: 10px;
-      padding: 8px 10px;
-      margin: 10px 0;
-      font-size: 0.9rem;
-      word-break: break-all;
-    }}
     button {{
       margin-top: 14px;
       width: 100%;
@@ -526,12 +509,9 @@ def _setup_html(*, error_message: str | None) -> str:
     body = f"""
 <div class="card">
   <h1>Ersteinrichtung</h1>
-  <p>Lege den ersten Admin-Zugang an. Der Setup-Token wurde beim Start im Server-Log ausgegeben.</p>
-  <div class="token">Ohne Setup-Token ist die Ersteinrichtung nicht möglich.</div>
+  <p>Lege den ersten Admin-Zugang an. Danach ist die Ersteinrichtung geschlossen und die Anmeldung läuft normal über den Login.</p>
   {safe_error}
   <form method="post" action="/setup">
-    <label for="setup_token">Setup-Token</label>
-    <input id="setup_token" name="setup_token" type="text" autocomplete="off" required />
     <label for="username">Benutzername</label>
     <input id="username" name="username" type="text" autocomplete="username" required />
     <label for="password">Passwort</label>

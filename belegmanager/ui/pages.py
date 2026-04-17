@@ -56,8 +56,8 @@ _NAV_CONFIG: list[dict[str, Any]] = [
         "label": "Finanzen",
         "icon": "account_balance_wallet",
         "items": [
-            {"path": "/belege", "label": "Belege", "icon": "description"},
             {"path": "/verkaeufe", "label": "Verkäufe", "icon": "receipt_long"},
+            {"path": "/belege", "label": "Belege", "icon": "description"},
             {"path": "/auswertung", "label": "Auswertung", "icon": "insights"},
         ],
     },
@@ -3386,7 +3386,9 @@ def register_pages(services: ServiceContainer) -> None:
 
                 with ui.row().classes("w-full gap-4 items-start wrap"):
                     with ui.column().classes("min-w-[320px] flex-[1_1_520px] gap-3"):
-                        notes_input = ui.textarea("Notiz", value=order.notes or "").classes("w-full bm-order-notes")
+                        notes_input = ui.textarea("Notiz", value=order.notes or "").props("rows=4").classes(
+                            "w-full bm-order-notes"
+                        )
                         with ui.row().classes("w-full gap-3 wrap items-center"):
                             head_project_container = ui.row().classes("min-w-[260px] flex-1")
                             with head_project_container:
@@ -5082,12 +5084,12 @@ def register_pages(services: ServiceContainer) -> None:
                     ui.button("Auswertung laden", icon="insights", on_click=lambda: render_report()).props(
                         "color=primary"
                     ).classes("bm-filter-btn bm-toolbar-btn")
-                summary_container = ui.column().classes("w-full gap-2")
-                categories_container = ui.column().classes("w-full gap-2")
-                subcategories_container = ui.column().classes("w-full gap-2")
                 income_summary_container = ui.column().classes("w-full gap-2")
                 income_projects_container = ui.column().classes("w-full gap-2")
                 income_orders_container = ui.column().classes("w-full gap-2")
+                summary_container = ui.column().classes("w-full gap-2")
+                categories_container = ui.column().classes("w-full gap-2")
+                subcategories_container = ui.column().classes("w-full gap-2")
 
                 def amount_state(total_cents: int) -> tuple[str, str]:
                     if total_cents > 0:
@@ -5295,6 +5297,9 @@ def register_pages(services: ServiceContainer) -> None:
                     from_value = _parse_iso_date(str(date_from.value or ""))
                     to_value = _parse_iso_date(str(date_to.value or ""))
 
+                    if from_value and to_value:
+                        render_income_report(from_value, to_value)
+
                     with summary_container:
                         if not from_value or not to_value:
                             with ui.card().classes("bm-card p-3"):
@@ -5390,9 +5395,6 @@ def register_pages(services: ServiceContainer) -> None:
                             table.on("rowClick", on_category_click)
                             render_subcategories(from_value, to_value)
 
-                    if from_value and to_value:
-                        render_income_report(from_value, to_value)
-
                 render_report()
 
     @ui.page("/kostenbereiche")
@@ -5409,14 +5411,14 @@ def register_pages(services: ServiceContainer) -> None:
 
     @ui.page("/einstellungen")
     def settings_page() -> None:
-        from .. import __version__
         from ..config import settings
         from ..legal import APP_COPYRIGHT, APP_LICENSE_ID, ThirdPartyNotice, get_third_party_notices
+        from ..versioning import get_app_version
 
         with _shell("/einstellungen", "Einstellungen"):
             with ui.card().classes("bm-card p-4 w-full"):
                 ui.label("Version & Rechtliches").classes("text-lg font-semibold")
-                ui.label(f"App-Version: {__version__}")
+                ui.label(f"App-Version: {get_app_version()}")
                 ui.label(APP_COPYRIGHT)
                 ui.label(f"Lizenz: {APP_LICENSE_ID}")
 
@@ -5581,6 +5583,6 @@ def register_pages(services: ServiceContainer) -> None:
                 ui.label(f"OCR-Sprachen: {settings.ocr_languages}")
                 ui.label(f"Währung (Default): {settings.default_currency}")
                 ui.label(f"USt-Satz (Default): {settings.default_vat_rate_percent:.2f}%")
-                ui.label("Login aktiviert (Session mit Timeout + Setup-Token für Ersteinrichtung).").classes(
+                ui.label("Login aktiviert (Session mit Timeout + einfache Ersteinrichtung für den ersten Admin).").classes(
                     "text-sm text-slate-600"
                 )

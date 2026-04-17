@@ -121,7 +121,7 @@ Warum:
 
 ## 13. Pragmatic Security statt Enterprise-Stack
 Entscheidung:
-- Setup-Token, Login, Argon2id, Session-Timeouts, Host-/Origin-Prüfung und Upload-Härtung als Basis
+- einfacher First-Admin-Setup-Flow, Login, Argon2id, Session-Timeouts, Host-/Origin-Prüfung und Upload-Härtung als Basis
 
 Warum:
 - deckt die wichtigsten Risiken einer self-hosted Web-App ab
