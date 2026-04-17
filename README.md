@@ -2,7 +2,7 @@
 
 Lokale Web-App für Belegverwaltung, Ausgangsrechnungen und betriebliche Auswertungen in kreativen Arbeitskontexten.
 
-Aktuelle Version: `0.2.2` (pre-alpha)
+Aktuelle Version: `0.2.3` (pre-alpha)
 
 ## Was ist Atelier Buddy?
 Atelier Buddy richtet sich an Künstler:innen, Bands und andere Solo- oder Kleinstteams, die Belege, Kontakte, Projekte und Verkäufe an einem Ort pflegen möchten, ohne in klassische ERP- oder Steuerkanzlei-Software zu wechseln.
@@ -41,7 +41,7 @@ Die App ist heute mehr als ein "einfacher Belegsammler": Sie verbindet Dokumenta
 - Nutzung erfolgt in eigener Verantwortung.
 - Regelmäßige Backups sind dringend empfohlen.
 
-## Schnellstart mit Docker
+## Schnellstart lokal mit Docker
 ### Voraussetzungen
 - Docker Desktop oder Docker Engine mit Compose Plugin
 
@@ -55,11 +55,59 @@ docker compose up --build -d
 
 App-URL: `http://localhost:12321`
 
+Diese Variante baut das Image lokal aus dem Checkout und ist für Entwicklung oder Einzelinstallationen gedacht.
+
 ### Ersteinrichtung
 Beim ersten Start muss ein Admin-Account über `/setup` angelegt werden.
 
 1. `/setup` im Browser öffnen.
 2. Ersten Benutzer anlegen.
+
+## Serverbetrieb mit Release-Image
+Für einen Homeserver oder eine andere dauerhafte Installation kann statt eines lokalen Builds das veröffentlichte Image aus GitHub Container Registry verwendet werden.
+
+Empfohlenes Compose-Beispiel:
+
+```yaml
+services:
+  atelier-buddy:
+    container_name: atelier-buddy
+    image: ghcr.io/hjenkel/atelierbuddy:latest
+    ports:
+      - "12321:8080"
+    environment:
+      BM_HOST: "0.0.0.0"
+      BM_SESSION_SECRET: "${BM_SESSION_SECRET:-}"
+      PYTHONUNBUFFERED: "1"
+    volumes:
+      - atelier_buddy_data:/app/data
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080', timeout=5).read()\"",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+volumes:
+  atelier_buddy_data:
+```
+
+Start oder Update auf dem Server:
+
+```bash
+docker compose pull
+docker compose up -d
+```
+
+Wichtig:
+- Persistente Daten liegen weiterhin im Volume unter `/app/data`.
+- Datenbank und Archivdateien sind nicht Teil des Docker-Images.
+- Für reproduzierbare Releases kann statt `latest` auch ein Versions-Tag wie `ghcr.io/hjenkel/atelierbuddy:0.2.3` verwendet werden.
 
 ## Lokale Installation
 ### Voraussetzungen
@@ -111,11 +159,28 @@ Einfaches Backup:
 tar -czf atelierbuddy-backup-$(date +%Y-%m-%d).tar.gz data
 ```
 
+Im Docker-Betrieb mit benanntem Volume sollte stattdessen das Volume bzw. der gemountete Datenpfad gesichert werden.
+
 ## Entwicklung
 - Start lokal: `python -m belegmanager`
 - Tests: `./.venv/bin/python -m pytest -q`
 - Versionsquelle: `pyproject.toml` -> `[project].version`
 - Changelog: [CHANGELOG.md](CHANGELOG.md)
+
+## Docker-Releases
+Der Docker-Release-Workflow veröffentlicht Images nach `ghcr.io/hjenkel/atelierbuddy`, aber nur für Git-Tags im Format `vX.Y.Z`.
+
+Release-Ablauf:
+1. Version in `pyproject.toml` erhöhen.
+2. `CHANGELOG.md` aktualisieren.
+3. Commit erstellen und Git-Tag `vX.Y.Z` setzen.
+4. Tag pushen.
+5. GitHub Actions veröffentlicht die Tags `X.Y.Z`, `latest` und `sha-<commit>` nach GHCR.
+6. Server mit `docker compose pull && docker compose up -d` aktualisieren.
+
+Sicherheitsnetz:
+- Der Release-Workflow bricht ab, wenn Git-Tag und `pyproject.toml`-Version nicht übereinstimmen.
+- CI prüft bei Pull Requests und Pushes nach `main` sowohl die Python-Tests als auch einen Docker-Build ohne Push.
 
 ## Dokumentation
 - Überblick: [docs/README.md](docs/README.md)
