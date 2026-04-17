@@ -30,6 +30,7 @@ Die App ist heute mehr als ein "einfacher Belegsammler": Sie verbindet Dokumenta
 - Belegdetail mit Brutto/USt/Netto, Anbieter, Typ, Notizen und Vollständigkeitsstatus
 - Kostenzuordnung pro Beleg mit Standardmodus oder Split-Aufteilung
 - Stammdaten für Projekte, Kontakte, Kontaktkategorien, Anbieter und Kostenkategorien
+- Kontakte mit Adressbereich für rechnungsrelevante Stammdaten
 - Verkaufsverwaltung mit internem Nummernkreis, manueller Rechnungsnummer und Positionszeilen
 - Rechnungsdokument je Verkauf mit direktem Upload/Ersetzen in der Detailansicht
 - projektbezogene Verkaufspositionen mit Dezimalmengen und berechneten Zeilensummen

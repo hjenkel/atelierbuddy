@@ -20,7 +20,7 @@ from .fts import init_fts
 from .models import Contact, ContactCategory, CostAllocation, CostArea, CostSubcategory, CostType, Order, OrderItem
 
 settings.ensure_dirs()
-SCHEMA_VERSION = "v1.10"
+SCHEMA_VERSION = "v1.11"
 SCHEMA_MARKER = settings.data_dir / "schema_version.txt"
 
 engine = create_engine(
@@ -203,7 +203,10 @@ def _seed_defaults(session: Session) -> None:
     session.exec(text("CREATE INDEX IF NOT EXISTS ix_contact_family_name ON contact (family_name)"))
     session.exec(text("CREATE INDEX IF NOT EXISTS ix_contact_organisation ON contact (organisation)"))
     session.exec(text("CREATE INDEX IF NOT EXISTS ix_contact_email ON contact (email)"))
+    session.exec(text("CREATE INDEX IF NOT EXISTS ix_contact_street ON contact (street)"))
+    session.exec(text("CREATE INDEX IF NOT EXISTS ix_contact_postal_code ON contact (postal_code)"))
     session.exec(text("CREATE INDEX IF NOT EXISTS ix_contact_city ON contact (city)"))
+    session.exec(text("CREATE INDEX IF NOT EXISTS ix_contact_country ON contact (country)"))
     session.exec(text("CREATE INDEX IF NOT EXISTS ix_sales_order_contact_id ON sales_order (contact_id)"))
     session.exec(text("CREATE INDEX IF NOT EXISTS ix_sales_order_sale_date ON sales_order (sale_date)"))
     session.exec(text("CREATE INDEX IF NOT EXISTS ix_sales_order_invoice_date ON sales_order (invoice_date)"))
@@ -287,6 +290,24 @@ def _apply_additive_migrations(session: Session) -> None:
         session.commit()
     if contact_columns and "updated_at" not in contact_columns:
         session.exec(text("ALTER TABLE contact ADD COLUMN updated_at TIMESTAMP"))
+        session.commit()
+    if contact_columns and "street" not in contact_columns:
+        session.exec(text("ALTER TABLE contact ADD COLUMN street TEXT"))
+        session.commit()
+    if contact_columns and "house_number" not in contact_columns:
+        session.exec(text("ALTER TABLE contact ADD COLUMN house_number TEXT"))
+        session.commit()
+    if contact_columns and "address_extra" not in contact_columns:
+        session.exec(text("ALTER TABLE contact ADD COLUMN address_extra TEXT"))
+        session.commit()
+    if contact_columns and "postal_code" not in contact_columns:
+        session.exec(text("ALTER TABLE contact ADD COLUMN postal_code TEXT"))
+        session.commit()
+    if contact_columns and "country" not in contact_columns:
+        session.exec(text("ALTER TABLE contact ADD COLUMN country TEXT DEFAULT 'DE'"))
+        session.commit()
+    if contact_columns:
+        session.exec(text("UPDATE contact SET country = 'DE' WHERE country IS NULL OR TRIM(country) = ''"))
         session.commit()
 
     order_columns = {str(row[1]).strip().casefold() for row in session.exec(text("PRAGMA table_info(sales_order)")).all()}

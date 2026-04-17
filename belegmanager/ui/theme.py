@@ -460,7 +460,7 @@ def apply_theme() -> None:
           overflow: hidden;
           margin-bottom: 10px;
           border-radius: 8px;
-          padding: 12px 14px;
+          padding: 12px 24px;
           background: var(--bm-surface-strong);
           border: 2px solid var(--bm-border);
           box-shadow: var(--bm-shadow);
@@ -702,8 +702,8 @@ def apply_theme() -> None:
         }
 
         .bm-detail-card {
-          height: calc(100dvh - var(--bm-header-height) - 170px);
-          max-height: calc(100dvh - var(--bm-header-height) - 170px);
+          height: calc(100dvh - var(--bm-header-height) - 40px);
+          max-height: calc(100dvh - var(--bm-header-height) - 40px);
           overflow: hidden;
           display: flex;
           flex-direction: column;

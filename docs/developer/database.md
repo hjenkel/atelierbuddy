@@ -64,7 +64,7 @@ Die Verkaufssumme wird nicht separat gespeichert, sondern aus diesen Positionen 
 
 ### Stammdaten
 - `project`: Projekte inkl. Farbe, optionalem Preis und optionalem Cover-Bild
-- `contact`: personenzentrierte Kontakte mit Pflichtregel "Vorname oder Nachname"
+- `contact`: personenzentrierte Kontakte mit Pflichtregel "Vorname oder Nachname" sowie Adressfeldern für Straße, Hausnummer, Adresszusatz, PLZ, Ort und Land; neue Kontakte starten mit Land `DE`
 - `contact_category`: frei pflegbare Kontaktkategorien
 - `supplier`: Anbieter für Belege
 - `cost_type` und `cost_subcategory`: fachliche Kostenstruktur
@@ -111,6 +111,7 @@ Beispiele:
 - `sales_order_item.order_id`
 - `sales_order_item.project_id`
 - `contact.given_name`, `contact.family_name`, `contact.organisation`
+- `contact.street`, `contact.postal_code`, `contact.city`, `contact.country`
 - `cost_allocation.receipt_id`, `cost_allocation.cost_type_id`, `cost_allocation.project_id`
 
 ## Warum diese Struktur

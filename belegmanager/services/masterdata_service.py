@@ -5,6 +5,7 @@ from datetime import date, datetime, timezone
 from sqlalchemy import delete, func, update as sa_update
 from sqlmodel import Session, select
 
+from ..countries import COUNTRY_LABEL_BY_CODE, DEFAULT_CONTACT_COUNTRY_CODE
 from ..constants import DEFAULT_COST_TYPE_ICON, DEFAULT_SUBCATEGORY_NAME, default_subcategory_name_for_cost_type
 from ..db import engine
 from ..models import Contact, ContactCategory, CostAllocation, CostSubcategory, CostType, Order, OrderItem, Project, Receipt, Supplier
@@ -46,6 +47,12 @@ class MasterDataService:
         if not normalized_given_name and not normalized_family_name:
             raise ValueError("Mindestens Vorname oder Nachname muss ausgefuellt sein")
         return normalized_given_name, normalized_family_name
+
+    def _normalize_country_code(self, value: str | None) -> str:
+        code = (value or "").strip().upper() or DEFAULT_CONTACT_COUNTRY_CODE
+        if code not in COUNTRY_LABEL_BY_CODE:
+            raise ValueError("Land ist ungültig")
+        return code
 
     def create_or_update_supplier(self, *, name: str, active: bool) -> tuple[Supplier, bool]:
         normalized_name = self._normalize_name(name, label="Anbietername")
@@ -106,7 +113,12 @@ class MasterDataService:
         phone: str | None,
         mobile: str | None,
         primary_link: str | None,
+        street: str | None = None,
+        house_number: str | None = None,
+        address_extra: str | None = None,
+        postal_code: str | None = None,
         city: str | None,
+        country: str | None = None,
         notes: str | None,
         contact_category_id: int,
     ) -> Contact:
@@ -126,7 +138,12 @@ class MasterDataService:
                 phone=self._normalize_optional_text(phone, label="Telefon"),
                 mobile=self._normalize_optional_text(mobile, label="Mobil"),
                 primary_link=self._normalize_optional_text(primary_link, label="Link"),
+                street=self._normalize_optional_text(street, label="Straße"),
+                house_number=self._normalize_optional_text(house_number, label="Hausnummer"),
+                address_extra=self._normalize_optional_text(address_extra, label="Adresszusatz"),
+                postal_code=self._normalize_optional_text(postal_code, label="PLZ"),
                 city=self._normalize_optional_text(city, label="Ort"),
+                country=self._normalize_country_code(country),
                 notes=self._normalize_optional_text(notes, label="Notiz"),
                 contact_category_id=contact_category_id,
             )
@@ -146,7 +163,12 @@ class MasterDataService:
         phone: str | None,
         mobile: str | None,
         primary_link: str | None,
+        street: str | None = None,
+        house_number: str | None = None,
+        address_extra: str | None = None,
+        postal_code: str | None = None,
         city: str | None,
+        country: str | None = None,
         notes: str | None,
         contact_category_id: int,
     ) -> Contact:
@@ -168,7 +190,12 @@ class MasterDataService:
             contact.phone = self._normalize_optional_text(phone, label="Telefon")
             contact.mobile = self._normalize_optional_text(mobile, label="Mobil")
             contact.primary_link = self._normalize_optional_text(primary_link, label="Link")
+            contact.street = self._normalize_optional_text(street, label="Straße")
+            contact.house_number = self._normalize_optional_text(house_number, label="Hausnummer")
+            contact.address_extra = self._normalize_optional_text(address_extra, label="Adresszusatz")
+            contact.postal_code = self._normalize_optional_text(postal_code, label="PLZ")
             contact.city = self._normalize_optional_text(city, label="Ort")
+            contact.country = self._normalize_country_code(country)
             contact.notes = self._normalize_optional_text(notes, label="Notiz")
             contact.contact_category_id = contact_category_id
             contact.updated_at = datetime.now(timezone.utc)

@@ -24,6 +24,7 @@ from ..constants import (
     DEFAULT_CONTACT_CATEGORY_NAME,
     DEFAULT_COST_TYPE_ICON,
 )
+from ..countries import COUNTRY_OPTION_MAP, COUNTRY_LABEL_BY_CODE, DEFAULT_CONTACT_COUNTRY_CODE
 from ..db import engine
 from ..models import Contact, ContactCategory, CostAllocation, CostSubcategory, CostType, Order, OrderItem, Project, Receipt, Supplier
 from ..schemas import AllocationInput, OrderItemInput
@@ -197,6 +198,22 @@ def _contact_sort_key(contact: Contact) -> tuple[str, str, str]:
     primary = family_name or given_name
     secondary = given_name if family_name else ""
     return (primary, secondary, organisation)
+
+
+def _contact_country_label(country_code: str | None) -> str:
+    code = (country_code or "").strip().upper()
+    if not code:
+        code = DEFAULT_CONTACT_COUNTRY_CODE
+    return COUNTRY_LABEL_BY_CODE.get(code, code)
+
+
+def _contact_location_label(contact: Contact) -> str:
+    parts = [part.strip() for part in (contact.postal_code, contact.city) if (part or "").strip()]
+    location = " ".join(parts)
+    country = _contact_country_label(contact.country)
+    if location and country:
+        return f"{location}, {country}"
+    return location or country or "-"
 
 
 def _parse_money_to_cents(
@@ -686,8 +703,6 @@ def _shell(active_path: str, title: str, *, show_page_head: bool = True, navigat
                     with ui.row().classes("bm-page-head w-full items-center justify-between"):
                         with ui.column().classes("gap-1"):
                             ui.label(title).classes("bm-page-title")
-                        if is_expanded:
-                            ui.image("/assets/blob-bg.svg").classes("w-24 opacity-70")
                 with ui.column().classes("w-full max-w-7xl mx-auto gap-4"):
                     yield
 
@@ -771,6 +786,149 @@ def register_pages(services: ServiceContainer) -> None:
             categories = list(session.exec(stmt).all())
         return {item.id: item.name for item in categories if item.id is not None}
 
+    def country_options() -> dict[str, str]:
+        return dict(COUNTRY_OPTION_MAP)
+
+    def build_contact_inputs(
+        *,
+        current_contact: Contact | None = None,
+        category_options_map: dict[int, str] | None = None,
+        selected_category_id: int | None = None,
+        include_category: bool = True,
+        include_extended_fields: bool = True,
+        include_notes: bool = True,
+    ) -> dict[str, Any]:
+        fields: dict[str, Any] = {}
+        selected_country = (
+            (current_contact.country or "").strip().upper()
+            if current_contact and (current_contact.country or "").strip()
+            else DEFAULT_CONTACT_COUNTRY_CODE
+        )
+
+        with ui.row().classes("w-full gap-3 wrap"):
+            fields["given_name"] = ui.input(
+                "Vorname",
+                value="" if current_contact is None else (current_contact.given_name or ""),
+            ).classes("flex-1 min-w-[220px]")
+            fields["family_name"] = ui.input(
+                "Nachname",
+                value="" if current_contact is None else (current_contact.family_name or ""),
+            ).classes("flex-1 min-w-[220px]")
+
+        with ui.row().classes("w-full gap-3 wrap"):
+            fields["organisation"] = ui.input(
+                "Organisation",
+                value="" if current_contact is None else (current_contact.organisation or ""),
+            ).classes("flex-1 min-w-[220px]")
+            if include_category:
+                fields["contact_category_id"] = ui.select(
+                    category_options_map or {},
+                    value=selected_category_id,
+                    label="Kategorie",
+                ).classes("flex-1 min-w-[220px]")
+            else:
+                fields["email"] = ui.input(
+                    "E-Mail",
+                    value="" if current_contact is None else (current_contact.email or ""),
+                ).classes("flex-1 min-w-[220px]")
+
+        if include_extended_fields:
+            with ui.card().classes("bm-card p-4 w-full gap-3"):
+                ui.label("Adresse").classes("text-base font-semibold")
+                with ui.row().classes("w-full gap-3 wrap"):
+                    fields["street"] = ui.input(
+                        "Straße",
+                        value="" if current_contact is None else (current_contact.street or ""),
+                    ).classes("flex-1 min-w-[240px]")
+                    fields["house_number"] = ui.input(
+                        "Hausnummer",
+                        value="" if current_contact is None else (current_contact.house_number or ""),
+                    ).classes("w-36")
+                with ui.row().classes("w-full gap-3 wrap"):
+                    fields["address_extra"] = ui.input(
+                        "Adresszusatz",
+                        value="" if current_contact is None else (current_contact.address_extra or ""),
+                    ).classes("w-full")
+                with ui.row().classes("w-full gap-3 wrap"):
+                    fields["postal_code"] = ui.input(
+                        "PLZ",
+                        value="" if current_contact is None else (current_contact.postal_code or ""),
+                    ).classes("w-40")
+                    fields["city"] = ui.input(
+                        "Ort",
+                        value="" if current_contact is None else (current_contact.city or ""),
+                    ).classes("flex-1 min-w-[220px]")
+                fields["country"] = ui.select(
+                    country_options(),
+                    value=selected_country,
+                    label="Land",
+                ).props("use-input input-debounce=0").classes("w-full")
+        else:
+            fields["street"] = None
+            fields["house_number"] = None
+            fields["address_extra"] = None
+            fields["postal_code"] = None
+            fields["city"] = None
+            fields["country"] = None
+
+        if include_category:
+            with ui.card().classes("bm-card p-4 w-full gap-3"):
+                ui.label("Kontakt").classes("text-base font-semibold")
+                with ui.row().classes("w-full gap-3 wrap"):
+                    fields["email"] = ui.input(
+                        "E-Mail",
+                        value="" if current_contact is None else (current_contact.email or ""),
+                    ).classes("flex-1 min-w-[220px]")
+                    fields["phone"] = ui.input(
+                        "Telefon",
+                        value="" if current_contact is None else (current_contact.phone or ""),
+                    ).classes("flex-1 min-w-[220px]")
+                with ui.row().classes("w-full gap-3 wrap"):
+                    fields["mobile"] = ui.input(
+                        "Mobil",
+                        value="" if current_contact is None else (current_contact.mobile or ""),
+                    ).classes("flex-1 min-w-[220px]")
+                    fields["primary_link"] = ui.input(
+                        "Link",
+                        value="" if current_contact is None else (current_contact.primary_link or ""),
+                    ).classes("flex-1 min-w-[220px]")
+        else:
+            fields["phone"] = None
+            fields["mobile"] = None
+            fields["primary_link"] = None
+
+        if include_notes:
+            fields["notes"] = ui.textarea(
+                "Notiz",
+                value="" if current_contact is None else (current_contact.notes or ""),
+            ).classes("w-full bm-order-notes")
+        else:
+            fields["notes"] = None
+
+        return fields
+
+    def contact_form_values(fields: dict[str, Any]) -> dict[str, Any]:
+        def value_of(name: str) -> Any:
+            field = fields.get(name)
+            return None if field is None else field.value
+
+        return {
+            "given_name": value_of("given_name"),
+            "family_name": value_of("family_name"),
+            "organisation": value_of("organisation"),
+            "email": value_of("email"),
+            "phone": value_of("phone"),
+            "mobile": value_of("mobile"),
+            "primary_link": value_of("primary_link"),
+            "street": value_of("street"),
+            "house_number": value_of("house_number"),
+            "address_extra": value_of("address_extra"),
+            "postal_code": value_of("postal_code"),
+            "city": value_of("city"),
+            "country": value_of("country") or DEFAULT_CONTACT_COUNTRY_CODE,
+            "notes": value_of("notes"),
+        }
+
     def missing_required_fields(receipt: Receipt) -> list[str]:
         missing: list[str] = []
         if receipt.doc_date is None:
@@ -791,7 +949,7 @@ def register_pages(services: ServiceContainer) -> None:
 
     def create_dirty_guard(
         flag_name: str,
-    ) -> tuple[Callable[[], None], Callable[[], None], Callable[[], bool], Callable[[str], Any]]:
+    ) -> tuple[Callable[[], None], Callable[[], None], Callable[[], bool], Callable[[str], Any], Callable[[str], Any]]:
         dirty_state = {"dirty": False}
         ui.run_javascript(
             f"""
@@ -826,6 +984,11 @@ def register_pages(services: ServiceContainer) -> None:
         def is_dirty() -> bool:
             return dirty_state["dirty"]
 
+        async def clean_and_navigate(path: str) -> None:
+            dirty_state["dirty"] = False
+            await ui.run_javascript(f"window[{json.dumps(flag_name)}] = false;", timeout=30)
+            ui.navigate.to(path)
+
         async def guarded_navigate(path: str) -> None:
             if dirty_state["dirty"]:
                 should_leave = await ui.run_javascript(
@@ -834,10 +997,9 @@ def register_pages(services: ServiceContainer) -> None:
                 )
                 if not should_leave:
                     return
-            mark_clean()
-            ui.navigate.to(path)
+            await clean_and_navigate(path)
 
-        return mark_dirty, mark_clean, is_dirty, guarded_navigate
+        return mark_dirty, mark_clean, is_dirty, guarded_navigate, clean_and_navigate
 
     def open_import_dialog(on_import_done: Callable[[], None] | None = None) -> None:
         with ui.dialog() as dialog, ui.card().classes("bm-card p-5 w-[820px] max-w-full"):
@@ -1381,7 +1543,7 @@ def register_pages(services: ServiceContainer) -> None:
         except ValueError:
             rid = -1
 
-        mark_dirty, mark_clean, is_dirty, guarded_navigate = create_dirty_guard(
+        mark_dirty, mark_clean, is_dirty, guarded_navigate, clean_and_navigate = create_dirty_guard(
             f"atelierBuddyReceiptDirty_{rid}_{uuid.uuid4().hex}"
         )
 
@@ -2454,29 +2616,27 @@ def register_pages(services: ServiceContainer) -> None:
 
                         mark_clean()
 
-                        def _detail_move_to_deleted(receipt_id_for_action: int | None) -> None:
+                        async def _detail_move_to_deleted(receipt_id_for_action: int | None) -> None:
                             if not receipt_id_for_action:
                                 return
                             try:
                                 services.receipt_service.move_to_trash(receipt_id_for_action)
                                 ui.notify("Beleg in Gelöschte Belege verschoben", type="positive")
-                                mark_clean()
-                                ui.navigate.to("/belege")
+                                await clean_and_navigate("/belege")
                             except Exception as exc:
                                 _notify_error("Löschen fehlgeschlagen", exc)
 
-                        def _detail_restore(receipt_id_for_action: int | None) -> None:
+                        async def _detail_restore(receipt_id_for_action: int | None) -> None:
                             if not receipt_id_for_action:
                                 return
                             try:
                                 services.receipt_service.restore_from_trash(receipt_id_for_action)
                                 ui.notify("Beleg wiederhergestellt", type="positive")
-                                mark_clean()
-                                ui.navigate.to("/belege")
+                                await clean_and_navigate("/belege")
                             except Exception as exc:
                                 _notify_error("Wiederherstellung fehlgeschlagen", exc)
 
-                        def _detail_save() -> None:
+                        async def _detail_save() -> None:
                             try:
                                 document_type = current_document_type()
                                 amount_gross_cents = _parse_money_to_cents(gross_input.value, allow_negative=True)
@@ -2540,8 +2700,7 @@ def register_pages(services: ServiceContainer) -> None:
                                 return
 
                             ui.notify("Beleg gespeichert", type="positive")
-                            mark_clean()
-                            ui.navigate.to("/belege")
+                            await clean_and_navigate("/belege")
 
     @ui.page("/verkaeufe")
     def orders_page() -> None:
@@ -2699,14 +2858,78 @@ def register_pages(services: ServiceContainer) -> None:
                         ui.navigate.to("/kontakte")
                         return
 
+                    category_options_map = contact_category_options()
+                    if not category_options_map:
+                        ui.notify("Bitte zuerst mindestens eine Kontaktkategorie anlegen", type="warning")
+                        ui.navigate.to("/kontakte")
+                        return
+                    default_category_id = next(
+                        (
+                            category_id
+                            for category_id, label in category_options_map.items()
+                            if label == DEFAULT_CONTACT_CATEGORY_NAME
+                        ),
+                        next(iter(category_options_map)),
+                    )
+
                     with ui.dialog() as dialog, ui.card().classes("p-4 w-[560px] max-w-full"):
                         ui.label("Neuer Verkauf").classes("text-lg font-semibold")
-                        contact_input = ui.select(contact_map, value=next(iter(contact_map)), label="Kontakt").classes(
-                            "w-full"
-                        )
+                        with ui.row().classes("w-full gap-3 wrap items-center"):
+                            contact_input = ui.select(
+                                contact_map,
+                                value=next(iter(contact_map)),
+                                label="Kontakt",
+                            ).props("use-input input-debounce=0").classes("min-w-0 flex-1")
+                            contact_add_btn = ui.button(
+                                icon="add",
+                                on_click=lambda: open_quick_contact_dialog(),
+                            ).props("flat").classes("bm-inline-create-btn")
+                            contact_add_btn.tooltip("Neuen Kontakt anlegen")
                         sale_date_input = ui.input("Verkaufsdatum", value=date.today().isoformat()).props(
                             "type=date"
                         ).classes("w-full")
+
+                        def reload_contact_options(selected_id: int | None = None) -> None:
+                            nonlocal contact_map
+                            contact_map = contact_options()
+                            current = contact_input.value if isinstance(contact_input.value, int) else None
+                            next_value = None
+                            if isinstance(selected_id, int) and selected_id in contact_map:
+                                next_value = selected_id
+                            elif isinstance(current, int) and current in contact_map:
+                                next_value = current
+                            elif contact_map:
+                                next_value = next(iter(contact_map))
+                            contact_input.set_options(contact_map, value=next_value)
+
+                        def open_quick_contact_dialog() -> None:
+                            with ui.dialog() as contact_dialog, ui.card().classes("p-4 w-[760px] max-w-full"):
+                                ui.label("Neuer Kontakt").classes("text-lg font-semibold")
+                                contact_fields = build_contact_inputs(
+                                    include_category=False,
+                                    include_extended_fields=True,
+                                    include_notes=False,
+                                )
+
+                                def save_contact() -> None:
+                                    try:
+                                        payload = contact_form_values(contact_fields)
+                                        contact = masterdata.create_contact(
+                                            contact_category_id=default_category_id,
+                                            **payload,
+                                        )
+                                        contact_id = contact.id
+                                        ui.notify("Kontakt angelegt", type="positive")
+                                        reload_contact_options(selected_id=contact_id if isinstance(contact_id, int) else None)
+                                        contact_dialog.close()
+                                    except Exception as exc:
+                                        _notify_error("Kontakt konnte nicht angelegt werden", exc)
+
+                                with ui.row().classes("w-full justify-end gap-2"):
+                                    ui.button("Abbrechen", on_click=contact_dialog.close).props("flat")
+                                    ui.button("Anlegen", on_click=save_contact).props("color=primary")
+
+                            contact_dialog.open()
 
                         def create_order() -> None:
                             contact_id = contact_input.value
@@ -2913,7 +3136,7 @@ def register_pages(services: ServiceContainer) -> None:
         except ValueError:
             oid = -1
 
-        mark_dirty, mark_clean, is_dirty, guarded_navigate = create_dirty_guard(
+        mark_dirty, mark_clean, is_dirty, guarded_navigate, clean_and_navigate = create_dirty_guard(
             f"atelierBuddyOrderDirty_{oid}_{uuid.uuid4().hex}"
         )
 
@@ -3052,6 +3275,65 @@ def register_pages(services: ServiceContainer) -> None:
                         ).props("color=negative")
                 remove_dialog.open()
 
+            category_options_map = contact_category_options()
+            default_contact_category_id = next(
+                (
+                    category_id
+                    for category_id, label in category_options_map.items()
+                    if label == DEFAULT_CONTACT_CATEGORY_NAME
+                ),
+                next(iter(category_options_map), None),
+            )
+
+            def reload_contact_options(selected_id: int | None = None) -> None:
+                nonlocal contact_map
+                contact_map = contact_options()
+                try:
+                    current = contact_input.value if isinstance(contact_input.value, int) else None
+                except NameError:
+                    current = None
+                next_value = None
+                if isinstance(selected_id, int) and selected_id in contact_map:
+                    next_value = selected_id
+                elif isinstance(current, int) and current in contact_map:
+                    next_value = current
+                elif contact_map:
+                    next_value = next(iter(contact_map))
+                contact_input.set_options(contact_map, value=next_value)
+
+            def open_quick_contact_dialog() -> None:
+                if not isinstance(default_contact_category_id, int):
+                    ui.notify("Bitte zuerst mindestens eine Kontaktkategorie anlegen", type="warning")
+                    return
+                with ui.dialog() as contact_dialog, ui.card().classes("p-4 w-[760px] max-w-full"):
+                    ui.label("Neuer Kontakt").classes("text-lg font-semibold")
+                    contact_fields = build_contact_inputs(
+                        include_category=False,
+                        include_extended_fields=True,
+                        include_notes=False,
+                    )
+
+                    def save_contact() -> None:
+                        try:
+                            payload = contact_form_values(contact_fields)
+                            contact = masterdata.create_contact(
+                                contact_category_id=default_contact_category_id,
+                                **payload,
+                            )
+                            contact_id = contact.id
+                            ui.notify("Kontakt angelegt", type="positive")
+                            reload_contact_options(selected_id=contact_id if isinstance(contact_id, int) else None)
+                            mark_dirty()
+                            contact_dialog.close()
+                        except Exception as exc:
+                            _notify_error("Kontakt konnte nicht angelegt werden", exc)
+
+                    with ui.row().classes("w-full justify-end gap-2"):
+                        ui.button("Abbrechen", on_click=contact_dialog.close).props("flat")
+                        ui.button("Anlegen", on_click=save_contact).props("color=primary")
+
+                contact_dialog.open()
+
             with ui.card().classes("bm-card p-4 w-full gap-4"):
                 with ui.row().classes("bm-detail-toolbar w-full items-center justify-between"):
                     with ui.row().classes("items-center gap-2"):
@@ -3083,9 +3365,15 @@ def register_pages(services: ServiceContainer) -> None:
                 ui.label(f"Verkauf {order.internal_number}").classes("text-xl font-semibold")
 
                 with ui.row().classes("w-full gap-3 wrap items-end"):
-                    contact_input = ui.select(contact_map, value=order.contact_id, label="Kontakt").classes(
-                        "min-w-[260px] flex-1"
-                    )
+                    with ui.row().classes("min-w-[260px] flex-[1_1_320px] gap-3 items-center"):
+                        contact_input = ui.select(contact_map, value=order.contact_id, label="Kontakt").props(
+                            "use-input input-debounce=0"
+                        ).classes("min-w-0 flex-1")
+                        contact_add_btn = ui.button(
+                            icon="add",
+                            on_click=open_quick_contact_dialog,
+                        ).props("flat").classes("bm-inline-create-btn")
+                        contact_add_btn.tooltip("Neuen Kontakt anlegen")
                     internal_number_input = ui.input("Interne Verkaufsnummer", value=order.internal_number).props(
                         "readonly"
                     ).classes("min-w-[190px] flex-1")
@@ -3368,7 +3656,7 @@ def register_pages(services: ServiceContainer) -> None:
                         )
                     return payload
 
-                def _save_order() -> None:
+                async def _save_order() -> None:
                     contact_id = contact_input.value
                     if not isinstance(contact_id, int):
                         ui.notify("Kontakt fehlt", type="negative")
@@ -3387,28 +3675,25 @@ def register_pages(services: ServiceContainer) -> None:
                         _notify_error("Verkauf konnte nicht gespeichert werden", exc)
                         return
                     ui.notify("Verkauf gespeichert", type="positive")
-                    mark_clean()
-                    ui.navigate.to("/verkaeufe")
+                    await clean_and_navigate("/verkaeufe")
 
-                def _detail_move_to_deleted() -> None:
+                async def _detail_move_to_deleted() -> None:
                     try:
                         services.order_service.move_to_trash(oid)
                     except Exception as exc:
                         _notify_error("Löschen fehlgeschlagen", exc)
                         return
                     ui.notify("Verkauf in Gelöschte Verkäufe verschoben", type="positive")
-                    mark_clean()
-                    ui.navigate.to("/verkaeufe")
+                    await clean_and_navigate("/verkaeufe")
 
-                def _detail_restore() -> None:
+                async def _detail_restore() -> None:
                     try:
                         services.order_service.restore_from_trash(oid)
                     except Exception as exc:
                         _notify_error("Wiederherstellung fehlgeschlagen", exc)
                         return
                     ui.notify("Verkauf wiederhergestellt", type="positive")
-                    mark_clean()
-                    ui.navigate.to(f"/verkaeufe/{oid}")
+                    await clean_and_navigate(f"/verkaeufe/{oid}")
 
                 def apply_head_project() -> None:
                     if bool(project_mode_input.value):
@@ -3633,7 +3918,7 @@ def register_pages(services: ServiceContainer) -> None:
         except ValueError:
             pid = -1
 
-        mark_dirty, mark_clean, is_dirty, guarded_navigate = create_dirty_guard(
+        mark_dirty, mark_clean, is_dirty, guarded_navigate, clean_and_navigate = create_dirty_guard(
             f"atelierBuddyProjectDirty_{pid}_{uuid.uuid4().hex}"
         )
 
@@ -3729,7 +4014,7 @@ def register_pages(services: ServiceContainer) -> None:
                             ).props("flat color=negative")
                             ui.button("Speichern", on_click=lambda: _save_project()).props("color=primary")
 
-                        def _save_project() -> None:
+                        async def _save_project() -> None:
                             name = (name_input.value or "").strip()
                             if not name:
                                 ui.notify("Projektname fehlt", type="negative")
@@ -3743,20 +4028,155 @@ def register_pages(services: ServiceContainer) -> None:
                                     created_on=_parse_iso_date(created_on_input.value),
                                 )
                                 ui.notify("Projekt gespeichert", type="positive")
-                                mark_clean()
-                                ui.navigate.to(f"/projekte/{pid}")
+                                await clean_and_navigate(f"/projekte/{pid}")
                             except Exception as exc:
                                 _notify_error("Speichern fehlgeschlagen", exc)
 
-                        def _delete_and_back() -> None:
+                        async def _delete_and_back() -> None:
                             try:
                                 old_cover_path = masterdata.delete_project(project_id=pid)
                                 safe_delete_file(old_cover_path)
                                 ui.notify("Projekt entfernt", type="positive")
-                                mark_clean()
-                                ui.navigate.to("/projekte")
+                                await clean_and_navigate("/projekte")
                             except Exception as exc:
                                 _notify_error("Projekt konnte nicht gelöscht werden", exc)
+
+    def _render_contact_detail(contact_id: int | None) -> None:
+        page_key = "new" if contact_id is None else str(contact_id)
+        mark_dirty, mark_clean, _, guarded_navigate, clean_and_navigate = create_dirty_guard(
+            f"atelierBuddyContactDirty_{page_key}_{uuid.uuid4().hex}"
+        )
+
+        with _shell("/kontakte", "Kontaktdetail", show_page_head=False, navigate_to=guarded_navigate):
+            current_contact: Contact | None = None
+            if contact_id is not None:
+                with Session(engine) as session:
+                    current_contact = session.get(Contact, contact_id)
+                if not current_contact:
+                    with ui.card().classes("bm-card p-4 w-full"):
+                        ui.label("Kontakt nicht gefunden")
+                    return
+
+            category_options_map = contact_category_options()
+            if not category_options_map:
+                with ui.card().classes("bm-card p-4 w-full gap-2"):
+                    ui.label("Es gibt noch keine Kontaktkategorien.")
+                    ui.button("Zu Kontaktkategorien", on_click=lambda: ui.navigate.to("/kontaktkategorien")).props("flat color=primary")
+                return
+
+            default_category_id = next(
+                (
+                    category_id
+                    for category_id, label in category_options_map.items()
+                    if label == DEFAULT_CONTACT_CATEGORY_NAME
+                ),
+                next(iter(category_options_map)),
+            )
+            selected_category_id = (
+                current_contact.contact_category_id if current_contact is not None else default_category_id
+            )
+            title = _contact_display_name(current_contact) if current_contact is not None else "Neuer Kontakt"
+
+            with ui.card().classes("bm-card bm-detail-card p-4 w-full"):
+                with ui.row().classes("bm-detail-toolbar w-full items-center justify-between"):
+                    with ui.row().classes("items-center gap-2"):
+                        back_btn = ui.button(
+                            icon="close",
+                            on_click=lambda: guarded_navigate("/kontakte"),
+                        ).props("flat round dense").classes("bm-icon-action-btn")
+                        back_btn.tooltip("Zurück zu Kontakten")
+                    with ui.row().classes("items-center gap-2"):
+                        if current_contact is not None:
+                            delete_btn = ui.button(
+                                icon="delete_outline",
+                                on_click=lambda: confirm_delete_contact(),
+                            ).props("flat round dense").classes("bm-icon-action-btn bm-icon-action-btn--danger")
+                            delete_btn.tooltip("Kontakt löschen")
+                        save_btn = ui.button(
+                            icon="save",
+                            on_click=lambda: save_contact(),
+                        ).props("flat round dense").classes("bm-icon-action-btn bm-icon-action-btn--primary")
+                        save_btn.tooltip("Speichern")
+
+                ui.label(title).classes("text-xl font-semibold mb-2")
+
+                with ui.column().classes("bm-detail-form gap-3"):
+                    contact_fields = build_contact_inputs(
+                        current_contact=current_contact,
+                        category_options_map=category_options_map,
+                        selected_category_id=selected_category_id,
+                        include_category=True,
+                        include_extended_fields=True,
+                        include_notes=True,
+                    )
+
+                    for field in contact_fields.values():
+                        if field is not None:
+                            field.on("update:model-value", lambda _: mark_dirty())
+
+                mark_clean()
+
+                async def save_contact() -> None:
+                    category_id = contact_fields["contact_category_id"].value
+                    if not isinstance(category_id, int):
+                        ui.notify("Kontaktkategorie fehlt", type="negative")
+                        return
+                    payload = contact_form_values(contact_fields)
+                    try:
+                        if current_contact is None:
+                            masterdata.create_contact(contact_category_id=category_id, **payload)
+                            ui.notify("Kontakt angelegt", type="positive")
+                        else:
+                            masterdata.update_contact(
+                                contact_id=current_contact.id or -1,
+                                contact_category_id=category_id,
+                                **payload,
+                            )
+                            ui.notify("Kontakt gespeichert", type="positive")
+                        await clean_and_navigate("/kontakte")
+                    except Exception as exc:
+                        _notify_error("Kontakt konnte nicht gespeichert werden", exc)
+
+                async def delete_contact() -> None:
+                    if current_contact is None or current_contact.id is None:
+                        return
+                    try:
+                        masterdata.delete_contact(contact_id=current_contact.id)
+                        ui.notify("Kontakt gelöscht", type="positive")
+                        await clean_and_navigate("/kontakte")
+                    except Exception as exc:
+                        _notify_error("Kontakt konnte nicht gelöscht werden", exc)
+
+                def confirm_delete_contact() -> None:
+                    with ui.dialog() as dialog, ui.card().classes("p-4 w-[480px] max-w-full"):
+                        ui.label("Kontakt endgültig löschen?").classes("text-lg font-semibold")
+                        ui.label("Dieser Vorgang kann nicht rückgängig gemacht werden.").classes("text-sm text-slate-600")
+                        with ui.row().classes("w-full justify-end gap-2"):
+                            ui.button("Abbrechen", on_click=dialog.close).props("flat")
+
+                            async def _confirm() -> None:
+                                dialog.close()
+                                await delete_contact()
+
+                            ui.button("Endgültig löschen", on_click=_confirm).props("color=negative")
+                    dialog.open()
+
+    @ui.page("/kontakte/neu")
+    def contact_create_page() -> None:
+        _render_contact_detail(None)
+
+    @ui.page("/kontakte/{contact_id}")
+    def contact_detail_page(contact_id: str) -> None:
+        try:
+            cid = int(contact_id)
+        except ValueError:
+            cid = -1
+        if cid <= 0:
+            with _shell("/kontakte", "Kontaktdetail"):
+                with ui.card().classes("bm-card p-4 w-full"):
+                    ui.label("Ungültige Kontakt-ID")
+            return
+        _render_contact_detail(cid)
 
     @ui.page("/kontakte")
     def contacts_page() -> None:
@@ -3764,7 +4184,9 @@ def register_pages(services: ServiceContainer) -> None:
             with ui.card().classes("bm-card p-4 w-full"):
                 with ui.row().classes("w-full items-center justify-between gap-3 wrap"):
                     ui.label("Kontakte verwalten").classes("text-lg font-semibold")
-                    ui.button("Kontakt anlegen", icon="add", on_click=lambda: open_contact_dialog()).props("color=primary")
+                    ui.button("Kontakt anlegen", icon="add", on_click=lambda: ui.navigate.to("/kontakte/neu")).props(
+                        "color=primary"
+                    )
 
                 with ui.row().classes("w-full items-end gap-2 wrap"):
                     search_input = ui.input("Suche").props("clearable").classes("grow bm-filter-field")
@@ -3785,127 +4207,10 @@ def register_pages(services: ServiceContainer) -> None:
                         current_value = "__all__"
                     category_filter.set_options(options, value=current_value)
 
-                def open_contact_dialog(contact_id: int | None = None) -> None:
-                    current_contact: Contact | None = None
-                    if contact_id is not None:
-                        with Session(engine) as session:
-                            current_contact = session.get(Contact, contact_id)
-                            if not current_contact:
-                                ui.notify("Kontakt nicht gefunden", type="negative")
-                                return
-
-                    category_options_map = contact_category_options()
-                    if not category_options_map:
-                        ui.notify("Bitte zuerst mindestens eine Kontaktkategorie anlegen", type="warning")
+                def open_contact_detail(contact_id: int) -> None:
+                    if contact_id <= 0:
                         return
-
-                    default_category_id = next(
-                        (
-                            category_id
-                            for category_id, label in category_options_map.items()
-                            if label == DEFAULT_CONTACT_CATEGORY_NAME
-                        ),
-                        next(iter(category_options_map)),
-                    )
-                    selected_category_id = (
-                        current_contact.contact_category_id if current_contact is not None else default_category_id
-                    )
-
-                    with ui.dialog() as dialog, ui.card().classes("p-4 w-[760px] max-w-full"):
-                        ui.label("Kontakt bearbeiten" if current_contact else "Neuer Kontakt").classes(
-                            "text-lg font-semibold"
-                        )
-                        with ui.row().classes("w-full gap-3 wrap"):
-                            given_name_input = ui.input(
-                                "Vorname",
-                                value="" if current_contact is None else (current_contact.given_name or ""),
-                            ).classes("flex-1 min-w-[220px]")
-                            family_name_input = ui.input(
-                                "Nachname",
-                                value="" if current_contact is None else (current_contact.family_name or ""),
-                            ).classes("flex-1 min-w-[220px]")
-                        with ui.row().classes("w-full gap-3 wrap"):
-                            organisation_input = ui.input(
-                                "Organisation",
-                                value="" if current_contact is None else (current_contact.organisation or ""),
-                            ).classes("flex-1 min-w-[220px]")
-                            category_input = ui.select(
-                                category_options_map,
-                                value=selected_category_id,
-                                label="Kategorie",
-                            ).classes("flex-1 min-w-[220px]")
-                        with ui.row().classes("w-full gap-3 wrap"):
-                            email_input = ui.input(
-                                "E-Mail",
-                                value="" if current_contact is None else (current_contact.email or ""),
-                            ).classes("flex-1 min-w-[220px]")
-                            city_input = ui.input(
-                                "Ort",
-                                value="" if current_contact is None else (current_contact.city or ""),
-                            ).classes("flex-1 min-w-[220px]")
-                        with ui.row().classes("w-full gap-3 wrap"):
-                            phone_input = ui.input(
-                                "Telefon",
-                                value="" if current_contact is None else (current_contact.phone or ""),
-                            ).classes("flex-1 min-w-[220px]")
-                            mobile_input = ui.input(
-                                "Mobil",
-                                value="" if current_contact is None else (current_contact.mobile or ""),
-                            ).classes("flex-1 min-w-[220px]")
-                        primary_link_input = ui.input(
-                            "Link",
-                            value="" if current_contact is None else (current_contact.primary_link or ""),
-                        ).classes("w-full")
-                        notes_input = ui.textarea(
-                            "Notiz",
-                            value="" if current_contact is None else (current_contact.notes or ""),
-                        ).classes("w-full")
-
-                        def save_contact() -> None:
-                            category_id = category_input.value
-                            if not isinstance(category_id, int):
-                                ui.notify("Kontaktkategorie fehlt", type="negative")
-                                return
-                            try:
-                                if current_contact is None:
-                                    masterdata.create_contact(
-                                        given_name=given_name_input.value,
-                                        family_name=family_name_input.value,
-                                        organisation=organisation_input.value,
-                                        email=email_input.value,
-                                        phone=phone_input.value,
-                                        mobile=mobile_input.value,
-                                        primary_link=primary_link_input.value,
-                                        city=city_input.value,
-                                        notes=notes_input.value,
-                                        contact_category_id=category_id,
-                                    )
-                                    ui.notify("Kontakt angelegt", type="positive")
-                                else:
-                                    masterdata.update_contact(
-                                        contact_id=contact_id or -1,
-                                        given_name=given_name_input.value,
-                                        family_name=family_name_input.value,
-                                        organisation=organisation_input.value,
-                                        email=email_input.value,
-                                        phone=phone_input.value,
-                                        mobile=mobile_input.value,
-                                        primary_link=primary_link_input.value,
-                                        city=city_input.value,
-                                        notes=notes_input.value,
-                                        contact_category_id=category_id,
-                                    )
-                                    ui.notify("Kontakt gespeichert", type="positive")
-                                dialog.close()
-                                refresh_category_filter_options()
-                                render_contacts()
-                            except Exception as exc:
-                                _notify_error("Kontakt konnte nicht gespeichert werden", exc)
-
-                        with ui.row().classes("w-full justify-end gap-2"):
-                            ui.button("Abbrechen", on_click=dialog.close).props("flat")
-                            ui.button("Speichern", on_click=save_contact).props("color=primary")
-                    dialog.open()
+                    ui.navigate.to(f"/kontakte/{contact_id}")
 
                 def delete_contact(contact_id: int) -> None:
                     with ui.dialog() as dialog, ui.card().classes("p-4 w-[480px] max-w-full"):
@@ -3926,6 +4231,28 @@ def register_pages(services: ServiceContainer) -> None:
                             ui.button("Endgültig löschen", on_click=confirm_delete).props("color=negative")
                     dialog.open()
 
+                def matches_search(contact: Contact, search_value: str) -> bool:
+                    if not search_value:
+                        return True
+                    haystack = " ".join(
+                        [
+                            contact.given_name or "",
+                            contact.family_name or "",
+                            contact.organisation or "",
+                            contact.email or "",
+                            contact.phone or "",
+                            contact.mobile or "",
+                            contact.street or "",
+                            contact.house_number or "",
+                            contact.address_extra or "",
+                            contact.postal_code or "",
+                            contact.city or "",
+                            _contact_country_label(contact.country),
+                            contact.notes or "",
+                        ]
+                    ).casefold()
+                    return search_value in haystack
+
                 def render_contacts() -> None:
                     selected_category = str(category_filter.value or "__all__")
                     search_value = (search_input.value or "").strip().casefold()
@@ -3936,21 +4263,7 @@ def register_pages(services: ServiceContainer) -> None:
                                 stmt = stmt.where(Contact.contact_category_id == int(selected_category))
                             except ValueError:
                                 pass
-                        if search_value:
-                            like_value = f"%{search_value}%"
-                            stmt = stmt.where(
-                                or_(
-                                    func.lower(func.coalesce(Contact.given_name, "")).like(like_value),
-                                    func.lower(func.coalesce(Contact.family_name, "")).like(like_value),
-                                    func.lower(func.coalesce(Contact.organisation, "")).like(like_value),
-                                    func.lower(func.coalesce(Contact.email, "")).like(like_value),
-                                    func.lower(func.coalesce(Contact.phone, "")).like(like_value),
-                                    func.lower(func.coalesce(Contact.mobile, "")).like(like_value),
-                                    func.lower(func.coalesce(Contact.city, "")).like(like_value),
-                                    func.lower(func.coalesce(Contact.notes, "")).like(like_value),
-                                )
-                            )
-                        contacts = list(session.exec(stmt).all())
+                        contacts = [contact for contact in session.exec(stmt).all() if matches_search(contact, search_value)]
 
                     contacts.sort(key=_contact_sort_key)
                     contacts_column.clear()
@@ -3963,9 +4276,7 @@ def register_pages(services: ServiceContainer) -> None:
                         for contact in contacts:
                             if contact.id is None:
                                 continue
-                            category_name = "-"
-                            if contact.contact_category:
-                                category_name = contact.contact_category.name
+                            category_name = contact.contact_category.name if contact.contact_category else "-"
                             phone_parts = [part for part in (contact.phone, contact.mobile) if part]
                             rows.append(
                                 {
@@ -3973,6 +4284,7 @@ def register_pages(services: ServiceContainer) -> None:
                                     "name": _contact_display_name(contact),
                                     "category": category_name,
                                     "organisation": contact.organisation or "-",
+                                    "location": _contact_location_label(contact),
                                     "reachability": contact.email or (" / ".join(phone_parts) if phone_parts else "-"),
                                 }
                             )
@@ -3981,6 +4293,7 @@ def register_pages(services: ServiceContainer) -> None:
                             {"name": "name", "label": "Kontakt", "field": "name", "align": "left", "sortable": True},
                             {"name": "category", "label": "Kategorie", "field": "category", "align": "left"},
                             {"name": "organisation", "label": "Organisation", "field": "organisation", "align": "left"},
+                            {"name": "location", "label": "Ort", "field": "location", "align": "left"},
                             {"name": "reachability", "label": "Kontaktweg", "field": "reachability", "align": "left"},
                             {"name": "actions", "label": "Aktionen", "field": "actions", "align": "right"},
                         ]
@@ -4006,8 +4319,8 @@ def register_pages(services: ServiceContainer) -> None:
                             </q-td>
                             """,
                         )
-                        table.on("rowClick", lambda e: open_contact_dialog(_extract_row_id(e) or -1))
-                        table.on("edit_action", lambda e: open_contact_dialog(_extract_row_id(e) or -1))
+                        table.on("rowClick", lambda e: open_contact_detail(_extract_row_id(e) or -1))
+                        table.on("edit_action", lambda e: open_contact_detail(_extract_row_id(e) or -1))
                         table.on("delete_action", lambda e: delete_contact(_extract_row_id(e) or -1))
 
                 search_input.on_value_change(lambda _: render_contacts())

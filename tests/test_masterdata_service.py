@@ -3,10 +3,12 @@ from __future__ import annotations
 from datetime import date
 from decimal import Decimal
 
+from sqlalchemy import text
 from sqlmodel import SQLModel, Session, create_engine, select
 
+from belegmanager.countries import DEFAULT_CONTACT_COUNTRY_CODE
 from belegmanager.constants import DEFAULT_CONTACT_CATEGORY_NAME
-from belegmanager.db import _seed_defaults
+from belegmanager.db import _apply_additive_migrations, _seed_defaults
 from belegmanager.models import CostAllocation, CostSubcategory, CostType, Order, OrderItem, Project, Receipt, Supplier
 from belegmanager.services.masterdata_service import MasterDataService
 from belegmanager.models import Contact, ContactCategory
@@ -233,7 +235,12 @@ def test_contact_create_update_delete_roundtrip() -> None:
         phone="040 12345",
         mobile="0170 5555",
         primary_link="https://example.com",
+        street="Hafenstraße",
+        house_number="7a",
+        address_extra="c/o Booking",
+        postal_code="20457",
         city="Hamburg",
+        country="DE",
         notes="Schreibt wegen Booking.",
         contact_category_id=default_category.id,
     )
@@ -248,15 +255,157 @@ def test_contact_create_update_delete_roundtrip() -> None:
         phone="040 67890",
         mobile="0170 9999",
         primary_link="https://example.org",
+        street="Spreeweg",
+        house_number="11",
+        address_extra="2. OG",
+        postal_code="10115",
         city="Berlin",
+        country="AT",
         notes="Jetzt bestätigt.",
         contact_category_id=default_category.id,
     )
     assert updated.organisation == "Club Ost"
+    assert updated.street == "Spreeweg"
+    assert updated.house_number == "11"
+    assert updated.address_extra == "2. OG"
+    assert updated.postal_code == "10115"
+    assert updated.city == "Berlin"
+    assert updated.country == "AT"
 
     service.delete_contact(contact_id=contact.id)
     with Session(engine) as session:
         assert session.get(Contact, contact.id) is None
+
+
+def test_contact_defaults_country_to_germany() -> None:
+    service, _ = _build_service()
+    category, _ = service.create_or_update_contact_category(name="Veranstalter", icon="event")
+
+    contact = service.create_contact(
+        given_name="Kim",
+        family_name="Bauer",
+        organisation=None,
+        email="kim@example.com",
+        phone=None,
+        mobile=None,
+        primary_link=None,
+        street="Markt",
+        house_number="3",
+        address_extra=None,
+        postal_code="50667",
+        city="Koeln",
+        country=None,
+        notes=None,
+        contact_category_id=category.id or -1,
+    )
+
+    assert contact.country == DEFAULT_CONTACT_COUNTRY_CODE
+
+
+def test_contact_additive_migration_adds_address_columns_and_defaults_country() -> None:
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
+    with Session(engine) as session:
+        session.exec(
+            text(
+                """
+                CREATE TABLE receipt (
+                    id INTEGER PRIMARY KEY,
+                    original_filename TEXT,
+                    archive_path TEXT,
+                    status TEXT
+                )
+                """
+            )
+        )
+        session.exec(text("CREATE TABLE cost_type (id INTEGER PRIMARY KEY, name TEXT)"))
+        session.exec(text("CREATE TABLE cost_area (id INTEGER PRIMARY KEY, name TEXT)"))
+        session.exec(text("CREATE TABLE project (id INTEGER PRIMARY KEY, name TEXT)"))
+        session.exec(
+            text(
+                """
+                CREATE TABLE cost_subcategory (
+                    id INTEGER PRIMARY KEY,
+                    cost_type_id INTEGER,
+                    name TEXT,
+                    is_system_default BOOLEAN,
+                    active BOOLEAN
+                )
+                """
+            )
+        )
+        session.exec(
+            text(
+                """
+                CREATE TABLE cost_allocation (
+                    id INTEGER PRIMARY KEY,
+                    receipt_id INTEGER,
+                    cost_type_id INTEGER,
+                    project_id INTEGER,
+                    cost_area_id INTEGER,
+                    amount_cents INTEGER,
+                    position INTEGER
+                )
+                """
+            )
+        )
+        session.exec(text("CREATE TABLE contact_category (id INTEGER PRIMARY KEY, name TEXT)"))
+        session.exec(
+            text(
+                """
+                CREATE TABLE contact (
+                    id INTEGER PRIMARY KEY,
+                    given_name TEXT,
+                    family_name TEXT,
+                    organisation TEXT,
+                    email TEXT,
+                    phone TEXT,
+                    mobile TEXT,
+                    primary_link TEXT,
+                    city TEXT,
+                    notes TEXT,
+                    contact_category_id INTEGER,
+                    created_at TIMESTAMP,
+                    updated_at TIMESTAMP
+                )
+                """
+            )
+        )
+        session.exec(
+            text(
+                """
+                CREATE TABLE sales_order (
+                    id INTEGER PRIMARY KEY,
+                    internal_number TEXT,
+                    contact_id INTEGER,
+                    sale_date TEXT,
+                    invoice_date TEXT,
+                    invoice_number TEXT,
+                    deleted_at TIMESTAMP
+                )
+                """
+            )
+        )
+        session.exec(
+            text(
+                """
+                INSERT INTO contact (
+                    id, given_name, family_name, organisation, email, phone, mobile, primary_link, city, notes,
+                    contact_category_id, created_at, updated_at
+                ) VALUES (
+                    1, 'Mira', 'Stern', NULL, NULL, NULL, NULL, NULL, 'Berlin', NULL, 1, NULL, NULL
+                )
+                """
+            )
+        )
+        session.commit()
+
+        _apply_additive_migrations(session)
+
+        column_names = {str(row[1]) for row in session.exec(text("PRAGMA table_info(contact)")).all()}
+        assert {"street", "house_number", "address_extra", "postal_code", "country"}.issubset(column_names)
+
+        migrated = session.exec(text("SELECT country FROM contact WHERE id = 1")).one()
+        assert migrated[0] == DEFAULT_CONTACT_COUNTRY_CODE
 
 
 def test_delete_contact_rejects_existing_orders() -> None:
