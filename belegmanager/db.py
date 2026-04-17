@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from contextlib import contextmanager
-import shutil
+from dataclasses import dataclass
+import logging
 
 from sqlalchemy import text
 from sqlmodel import Session, SQLModel, create_engine, select
@@ -19,9 +21,10 @@ from .constants import (
 from .fts import init_fts
 from .models import Contact, ContactCategory, CostAllocation, CostArea, CostSubcategory, CostType, Order, OrderItem
 
+LOG = logging.getLogger(__name__)
+MIGRATION_TABLE = "schema_migration"
+
 settings.ensure_dirs()
-SCHEMA_VERSION = "v1.11"
-SCHEMA_MARKER = settings.data_dir / "schema_version.txt"
 
 engine = create_engine(
     f"sqlite:///{settings.db_path}",
@@ -36,46 +39,26 @@ def session_scope() -> Session:
         yield session
 
 
+class DatabaseMigrationError(RuntimeError):
+    """Raised when the database schema cannot be safely migrated or validated."""
+
+
+@dataclass(frozen=True)
+class MigrationStep:
+    migration_id: str
+    description: str
+    apply: Callable[[Session], None]
+
+
 def init_db() -> None:
-    _ensure_schema_state()
+    settings.ensure_dirs()
     SQLModel.metadata.create_all(engine)
     with Session(engine) as session:
-        _apply_additive_migrations(session)
+        _ensure_migration_table(session)
+        _apply_migrations(session)
+        _validate_schema_state(session)
         init_fts(session)
         _seed_defaults(session)
-
-
-def _ensure_schema_state() -> None:
-    if not settings.db_path.exists():
-        _write_schema_marker()
-        return
-    previous = _read_schema_marker()
-    if previous == SCHEMA_VERSION:
-        return
-    _hard_reset()
-
-
-def _hard_reset() -> None:
-    engine.dispose()
-    settings.db_path.unlink(missing_ok=True)
-    if settings.archive_dir.exists():
-        shutil.rmtree(settings.archive_dir, ignore_errors=True)
-    settings.ensure_dirs()
-    _write_schema_marker()
-
-
-def _read_schema_marker() -> str | None:
-    if not SCHEMA_MARKER.exists():
-        return None
-    try:
-        return SCHEMA_MARKER.read_text(encoding="utf-8").strip() or None
-    except Exception:
-        return None
-
-
-def _write_schema_marker() -> None:
-    SCHEMA_MARKER.parent.mkdir(parents=True, exist_ok=True)
-    SCHEMA_MARKER.write_text(SCHEMA_VERSION, encoding="utf-8")
 
 
 def _seed_defaults(session: Session) -> None:
@@ -219,61 +202,83 @@ def _seed_defaults(session: Session) -> None:
     session.commit()
 
 
-def _apply_additive_migrations(session: Session) -> None:
-    receipt_columns = {str(row[1]).strip().casefold() for row in session.exec(text("PRAGMA table_info(receipt)")).all()}
-    if "document_type" not in receipt_columns:
-        session.exec(text("ALTER TABLE receipt ADD COLUMN document_type TEXT DEFAULT 'invoice'"))
-        session.commit()
-    session.exec(
-        text(
-            "UPDATE receipt SET document_type = 'invoice' "
-            "WHERE document_type IS NULL OR TRIM(document_type) = ''"
+def _migration_0001_receipt_document_type_and_notes(session: Session) -> None:
+    receipt_columns = _get_table_columns(session, "receipt")
+    if receipt_columns:
+        _add_column_if_missing(session, "receipt", receipt_columns, "ocr_pdf_path", "TEXT")
+        _add_column_if_missing(session, "receipt", receipt_columns, "thumbnail_path", "TEXT")
+        _add_column_if_missing(session, "receipt", receipt_columns, "ocr_text", "TEXT")
+        _add_column_if_missing(session, "receipt", receipt_columns, "doc_date", "DATE")
+        _add_column_if_missing(session, "receipt", receipt_columns, "amount_gross_cents", "INTEGER")
+        _add_column_if_missing(session, "receipt", receipt_columns, "vat_rate_percent", "FLOAT")
+        _add_column_if_missing(session, "receipt", receipt_columns, "amount_net_cents", "INTEGER")
+        _add_column_if_missing(session, "receipt", receipt_columns, "notes", "TEXT")
+        _add_column_if_missing(session, "receipt", receipt_columns, "document_type", "TEXT DEFAULT 'invoice'")
+        _add_column_if_missing(session, "receipt", receipt_columns, "error_message", "TEXT")
+        _add_column_if_missing(session, "receipt", receipt_columns, "supplier_id", "INTEGER")
+        _add_column_if_missing(session, "receipt", receipt_columns, "import_batch_id", "INTEGER")
+        _add_column_if_missing(session, "receipt", receipt_columns, "created_at", "TIMESTAMP")
+        _add_column_if_missing(session, "receipt", receipt_columns, "updated_at", "TIMESTAMP")
+        _add_column_if_missing(session, "receipt", receipt_columns, "deleted_at", "TIMESTAMP")
+        session.exec(
+            text(
+                "UPDATE receipt SET document_type = 'invoice' "
+                "WHERE document_type IS NULL OR TRIM(document_type) = ''"
+            )
         )
-    )
-    session.commit()
-    if "notes" not in receipt_columns:
-        session.exec(text("ALTER TABLE receipt ADD COLUMN notes TEXT"))
-        session.commit()
 
-    cost_type_columns = {str(row[1]).strip().casefold() for row in session.exec(text("PRAGMA table_info(cost_type)")).all()}
-    if "active" not in cost_type_columns:
-        session.exec(text("ALTER TABLE cost_type ADD COLUMN active BOOLEAN DEFAULT 1"))
-        session.commit()
-    session.exec(text("UPDATE cost_type SET active = 1 WHERE active IS NULL"))
-    session.commit()
 
-    cost_area_columns = {str(row[1]).strip().casefold() for row in session.exec(text("PRAGMA table_info(cost_area)")).all()}
-    if "icon" not in cost_area_columns:
-        session.exec(text(f"ALTER TABLE cost_area ADD COLUMN icon TEXT DEFAULT '{DEFAULT_COST_AREA_ICON}'"))
-        session.commit()
+def _migration_0002_cost_type_active(session: Session) -> None:
+    cost_type_columns = _get_table_columns(session, "cost_type")
+    if cost_type_columns:
+        _add_column_if_missing(session, "cost_type", cost_type_columns, "color", "TEXT DEFAULT '#ff9f1c'")
+        _add_column_if_missing(session, "cost_type", cost_type_columns, "icon", "TEXT DEFAULT 'label'")
+        _add_column_if_missing(session, "cost_type", cost_type_columns, "active", "BOOLEAN DEFAULT 1")
+        session.exec(text("UPDATE cost_type SET active = 1 WHERE active IS NULL"))
 
-    project_columns = {str(row[1]).strip().casefold() for row in session.exec(text("PRAGMA table_info(project)")).all()}
-    if "price_cents" not in project_columns:
-        session.exec(text("ALTER TABLE project ADD COLUMN price_cents INTEGER"))
-        session.commit()
 
-    cost_subcategory_columns = {
-        str(row[1]).strip().casefold() for row in session.exec(text("PRAGMA table_info(cost_subcategory)")).all()
-    }
-    if "archived_with_parent" not in cost_subcategory_columns:
-        session.exec(text("ALTER TABLE cost_subcategory ADD COLUMN archived_with_parent BOOLEAN DEFAULT 0"))
-        session.commit()
-    session.exec(text("UPDATE cost_subcategory SET archived_with_parent = 0 WHERE archived_with_parent IS NULL"))
-    session.commit()
+def _migration_0003_cost_area_icon_and_project_price(session: Session) -> None:
+    cost_area_columns = _get_table_columns(session, "cost_area")
+    if cost_area_columns:
+        _add_column_if_missing(session, "cost_area", cost_area_columns, "color", "TEXT DEFAULT '#4d96ff'")
+        _add_column_if_missing(
+            session,
+            "cost_area",
+            cost_area_columns,
+            "icon",
+            f"TEXT DEFAULT '{DEFAULT_COST_AREA_ICON}'",
+        )
+        _add_column_if_missing(session, "cost_area", cost_area_columns, "active", "BOOLEAN DEFAULT 1")
 
-    cost_allocation_columns = {
-        str(row[1]).strip().casefold() for row in session.exec(text("PRAGMA table_info(cost_allocation)")).all()
-    }
-    if "cost_subcategory_id" not in cost_allocation_columns:
-        session.exec(text("ALTER TABLE cost_allocation ADD COLUMN cost_subcategory_id INTEGER"))
-        session.commit()
+    project_columns = _get_table_columns(session, "project")
+    if project_columns:
+        _add_column_if_missing(session, "project", project_columns, "color", "TEXT DEFAULT '#2ec4b6'")
+        _add_column_if_missing(session, "project", project_columns, "active", "BOOLEAN DEFAULT 1")
+        _add_column_if_missing(session, "project", project_columns, "price_cents", "INTEGER")
+        _add_column_if_missing(session, "project", project_columns, "cover_image_path", "TEXT")
+        _add_column_if_missing(session, "project", project_columns, "created_on", "DATE")
 
-    contact_category_columns = {
-        str(row[1]).strip().casefold() for row in session.exec(text("PRAGMA table_info(contact_category)")).all()
-    }
+
+def _migration_0004_cost_subcategory_and_allocation(session: Session) -> None:
+    cost_subcategory_columns = _get_table_columns(session, "cost_subcategory")
+    if cost_subcategory_columns:
+        _add_column_if_missing(session, "cost_subcategory", cost_subcategory_columns, "active", "BOOLEAN DEFAULT 1")
+        _add_column_if_missing(session, "cost_subcategory", cost_subcategory_columns, "archived_with_parent", "BOOLEAN DEFAULT 0")
+        _add_column_if_missing(session, "cost_subcategory", cost_subcategory_columns, "created_at", "TIMESTAMP")
+        _add_column_if_missing(session, "cost_subcategory", cost_subcategory_columns, "updated_at", "TIMESTAMP")
+        session.exec(text("UPDATE cost_subcategory SET archived_with_parent = 0 WHERE archived_with_parent IS NULL"))
+
+    cost_allocation_columns = _get_table_columns(session, "cost_allocation")
+    if cost_allocation_columns:
+        _add_column_if_missing(session, "cost_allocation", cost_allocation_columns, "cost_subcategory_id", "INTEGER")
+        _add_column_if_missing(session, "cost_allocation", cost_allocation_columns, "created_at", "TIMESTAMP")
+        _add_column_if_missing(session, "cost_allocation", cost_allocation_columns, "updated_at", "TIMESTAMP")
+
+
+def _migration_0005_contact_category_icon(session: Session) -> None:
+    contact_category_columns = _get_table_columns(session, "contact_category")
     if contact_category_columns and "icon" not in contact_category_columns:
         session.exec(text(f"ALTER TABLE contact_category ADD COLUMN icon TEXT DEFAULT '{DEFAULT_CONTACT_CATEGORY_ICON}'"))
-        session.commit()
     if contact_category_columns:
         if "icon" in contact_category_columns:
             session.exec(
@@ -282,44 +287,217 @@ def _apply_additive_migrations(session: Session) -> None:
                     "WHERE icon IS NULL OR TRIM(icon) = ''"
                 )
             )
-            session.commit()
 
-    contact_columns = {str(row[1]).strip().casefold() for row in session.exec(text("PRAGMA table_info(contact)")).all()}
+
+def _migration_0006_contact_address_fields(session: Session) -> None:
+    contact_columns = _get_table_columns(session, "contact")
     if contact_columns and "created_at" not in contact_columns:
         session.exec(text("ALTER TABLE contact ADD COLUMN created_at TIMESTAMP"))
-        session.commit()
     if contact_columns and "updated_at" not in contact_columns:
         session.exec(text("ALTER TABLE contact ADD COLUMN updated_at TIMESTAMP"))
-        session.commit()
     if contact_columns and "street" not in contact_columns:
         session.exec(text("ALTER TABLE contact ADD COLUMN street TEXT"))
-        session.commit()
     if contact_columns and "house_number" not in contact_columns:
         session.exec(text("ALTER TABLE contact ADD COLUMN house_number TEXT"))
-        session.commit()
     if contact_columns and "address_extra" not in contact_columns:
         session.exec(text("ALTER TABLE contact ADD COLUMN address_extra TEXT"))
-        session.commit()
     if contact_columns and "postal_code" not in contact_columns:
         session.exec(text("ALTER TABLE contact ADD COLUMN postal_code TEXT"))
-        session.commit()
     if contact_columns and "country" not in contact_columns:
         session.exec(text("ALTER TABLE contact ADD COLUMN country TEXT DEFAULT 'DE'"))
-        session.commit()
     if contact_columns:
         session.exec(text("UPDATE contact SET country = 'DE' WHERE country IS NULL OR TRIM(country) = ''"))
-        session.commit()
 
-    order_columns = {str(row[1]).strip().casefold() for row in session.exec(text("PRAGMA table_info(sales_order)")).all()}
-    if order_columns and "notes" not in order_columns:
-        session.exec(text("ALTER TABLE sales_order ADD COLUMN notes TEXT"))
-        session.commit()
-    if order_columns and "invoice_document_path" not in order_columns:
-        session.exec(text("ALTER TABLE sales_order ADD COLUMN invoice_document_path TEXT"))
-        session.commit()
-    if order_columns and "invoice_document_original_filename" not in order_columns:
-        session.exec(text("ALTER TABLE sales_order ADD COLUMN invoice_document_original_filename TEXT"))
-        session.commit()
-    if order_columns and "invoice_document_uploaded_at" not in order_columns:
-        session.exec(text("ALTER TABLE sales_order ADD COLUMN invoice_document_uploaded_at TIMESTAMP"))
-        session.commit()
+
+def _migration_0007_sales_order_invoice_document_fields(session: Session) -> None:
+    order_columns = _get_table_columns(session, "sales_order")
+    if order_columns:
+        _add_column_if_missing(session, "sales_order", order_columns, "invoice_document_path", "TEXT")
+        _add_column_if_missing(session, "sales_order", order_columns, "invoice_document_original_filename", "TEXT")
+        _add_column_if_missing(session, "sales_order", order_columns, "invoice_document_uploaded_at", "TIMESTAMP")
+        _add_column_if_missing(session, "sales_order", order_columns, "notes", "TEXT")
+        _add_column_if_missing(session, "sales_order", order_columns, "created_at", "TIMESTAMP")
+        _add_column_if_missing(session, "sales_order", order_columns, "updated_at", "TIMESTAMP")
+
+
+def _migration_0008_supplier_and_import_batch_fields(session: Session) -> None:
+    supplier_columns = _get_table_columns(session, "supplier")
+    if supplier_columns:
+        _add_column_if_missing(session, "supplier", supplier_columns, "active", "BOOLEAN DEFAULT 1")
+        _add_column_if_missing(session, "supplier", supplier_columns, "created_at", "TIMESTAMP")
+        _add_column_if_missing(session, "supplier", supplier_columns, "updated_at", "TIMESTAMP")
+
+    import_batch_columns = _get_table_columns(session, "import_batch")
+    if import_batch_columns:
+        _add_column_if_missing(session, "import_batch", import_batch_columns, "started_at", "TIMESTAMP")
+        _add_column_if_missing(session, "import_batch", import_batch_columns, "finished_at", "TIMESTAMP")
+        _add_column_if_missing(session, "import_batch", import_batch_columns, "total_count", "INTEGER DEFAULT 0")
+        _add_column_if_missing(session, "import_batch", import_batch_columns, "imported_count", "INTEGER DEFAULT 0")
+        _add_column_if_missing(session, "import_batch", import_batch_columns, "error_count", "INTEGER DEFAULT 0")
+
+
+MIGRATIONS: tuple[MigrationStep, ...] = (
+    MigrationStep(
+        migration_id="0001_receipt_document_type_and_notes",
+        description="Add receipt document type and notes columns.",
+        apply=_migration_0001_receipt_document_type_and_notes,
+    ),
+    MigrationStep(
+        migration_id="0002_cost_type_active",
+        description="Add cost type active flag.",
+        apply=_migration_0002_cost_type_active,
+    ),
+    MigrationStep(
+        migration_id="0003_cost_area_icon_and_project_price",
+        description="Add cost area icon and project price fields.",
+        apply=_migration_0003_cost_area_icon_and_project_price,
+    ),
+    MigrationStep(
+        migration_id="0004_cost_subcategory_and_allocation",
+        description="Add cost subcategory archival fields and allocation linkage.",
+        apply=_migration_0004_cost_subcategory_and_allocation,
+    ),
+    MigrationStep(
+        migration_id="0005_contact_category_icon",
+        description="Add contact category icon support.",
+        apply=_migration_0005_contact_category_icon,
+    ),
+    MigrationStep(
+        migration_id="0006_contact_address_fields",
+        description="Add contact audit and address fields with default country.",
+        apply=_migration_0006_contact_address_fields,
+    ),
+    MigrationStep(
+        migration_id="0007_sales_order_invoice_document_fields",
+        description="Add sales order notes and invoice document fields.",
+        apply=_migration_0007_sales_order_invoice_document_fields,
+    ),
+    MigrationStep(
+        migration_id="0008_supplier_and_import_batch_fields",
+        description="Add supplier and import batch bookkeeping fields.",
+        apply=_migration_0008_supplier_and_import_batch_fields,
+    ),
+)
+
+
+def _ensure_migration_table(session: Session) -> None:
+    session.exec(
+        text(
+            f"""
+            CREATE TABLE IF NOT EXISTS {MIGRATION_TABLE} (
+                migration_id TEXT PRIMARY KEY,
+                description TEXT NOT NULL,
+                applied_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+    )
+    session.commit()
+
+
+def _get_applied_migration_ids(session: Session) -> set[str]:
+    return {str(row[0]) for row in session.exec(text(f"SELECT migration_id FROM {MIGRATION_TABLE}")).all()}
+
+
+def _record_applied_migration(session: Session, migration: MigrationStep) -> None:
+    session.exec(
+        text(
+            f"""
+            INSERT INTO {MIGRATION_TABLE} (migration_id, description)
+            VALUES (:migration_id, :description)
+            """
+        ),
+        params={"migration_id": migration.migration_id, "description": migration.description},
+    )
+
+
+def _apply_migrations(session: Session) -> None:
+    applied_migrations = _get_applied_migration_ids(session)
+    for migration in MIGRATIONS:
+        if migration.migration_id in applied_migrations:
+            continue
+        LOG.info("Applying database migration %s", migration.migration_id)
+        try:
+            migration.apply(session)
+            _record_applied_migration(session, migration)
+            session.commit()
+        except Exception as exc:
+            session.rollback()
+            raise DatabaseMigrationError(
+                f"Database migration failed at {migration.migration_id}: {migration.description}"
+            ) from exc
+
+
+def _apply_additive_migrations(session: Session) -> None:
+    _ensure_migration_table(session)
+    _apply_migrations(session)
+
+
+def _get_table_columns(session: Session, table_name: str) -> set[str]:
+    return {str(row[1]).strip().casefold() for row in session.exec(text(f"PRAGMA table_info({table_name})")).all()}
+
+
+def _add_column_if_missing(session: Session, table_name: str, existing_columns: set[str], column_name: str, spec: str) -> None:
+    if column_name.casefold() in existing_columns:
+        return
+    session.exec(text(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {spec}"))
+    existing_columns.add(column_name.casefold())
+
+
+def _validate_required_columns(session: Session, table_name: str, required_columns: tuple[str, ...]) -> None:
+    existing_columns = _get_table_columns(session, table_name)
+    missing_columns = [column for column in required_columns if column not in existing_columns]
+    if missing_columns:
+        missing = ", ".join(missing_columns)
+        raise DatabaseMigrationError(
+            f"Schema validation failed for table '{table_name}': missing columns {missing}"
+        )
+
+
+def _validate_schema_state(session: Session) -> None:
+    _validate_required_columns(
+        session,
+        "receipt",
+        (
+            "ocr_pdf_path",
+            "thumbnail_path",
+            "ocr_text",
+            "doc_date",
+            "amount_gross_cents",
+            "vat_rate_percent",
+            "amount_net_cents",
+            "notes",
+            "document_type",
+            "error_message",
+            "supplier_id",
+            "import_batch_id",
+            "created_at",
+            "updated_at",
+            "deleted_at",
+        ),
+    )
+    _validate_required_columns(session, "cost_type", ("color", "icon", "active"))
+    _validate_required_columns(session, "cost_area", ("color", "icon", "active"))
+    _validate_required_columns(session, "project", ("color", "active", "price_cents", "cover_image_path", "created_on"))
+    _validate_required_columns(session, "cost_subcategory", ("active", "archived_with_parent", "created_at", "updated_at"))
+    _validate_required_columns(session, "cost_allocation", ("cost_subcategory_id", "created_at", "updated_at"))
+    _validate_required_columns(session, "contact_category", ("icon",))
+    _validate_required_columns(
+        session,
+        "contact",
+        ("created_at", "updated_at", "street", "house_number", "address_extra", "postal_code", "country"),
+    )
+    _validate_required_columns(
+        session,
+        "sales_order",
+        (
+            "notes",
+            "invoice_document_path",
+            "invoice_document_original_filename",
+            "invoice_document_uploaded_at",
+            "created_at",
+            "updated_at",
+        ),
+    )
+    _validate_required_columns(session, "supplier", ("active", "created_at", "updated_at"))
+    _validate_required_columns(session, "import_batch", ("started_at", "finished_at", "total_count", "imported_count", "error_count"))

@@ -92,15 +92,21 @@ Die Verkaufssumme wird nicht separat gespeichert, sondern aus diesen Positionen 
 - Volltextsuche nutzt `receipt_fts`.
 - Verkaufsmengen werden als `Decimal(12,3)` gespeichert.
 
-## Initialisierung, Seeds und Schema-Reset
+## Initialisierung, Seeds und Migrationen
 Initialisierung über `db.init_db()`:
-1. Prüfung des Schema-Markers in `data/schema_version.txt`
-2. bei Versionsabweichung Hard Reset von Datenbank und Archiv
-3. `SQLModel.metadata.create_all(engine)`
-4. additive Migrationen für fehlende Spalten
-5. Initialisierung von FTS
-6. Seeds für Default-Kontaktkategorien, Kostenkategorien, Unterkategorien und technische Kostenstelle
-7. Anlage wichtiger Indexe
+1. Verzeichnisse unter `data/` sicherstellen
+2. `SQLModel.metadata.create_all(engine)` für das Grundschema
+3. Metatabelle `schema_migration` für angewendete Migrationen sicherstellen
+4. fehlende interne Migrationen in stabiler Reihenfolge ausführen
+5. resultierenden Schemazustand validieren
+6. Initialisierung von FTS
+7. Seeds für Default-Kontaktkategorien, Kostenkategorien, Unterkategorien und technische Kostenstelle
+8. Anlage wichtiger Indexe
+
+Wichtig:
+- `data/schema_version.txt` ist keine Wahrheitsquelle für destruktive Aktionen mehr.
+- Weder Datenbank noch `data/archive/` werden bei Schemaänderungen automatisch gelöscht.
+- Wenn eine Alt-Datenbank nicht sicher migriert oder validiert werden kann, blockiert der Start mit einer gezielten Fehlermeldung.
 
 ## Wichtige Indexe
 Beispiele:

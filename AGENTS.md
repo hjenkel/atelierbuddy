@@ -5,6 +5,7 @@ Atelier Buddy ist eine lokale Belegverwaltung für Künstler:innen, Bands und Kr
 - einfache Erfassung/Zuordnung von Belegen
 - Vorbereitung für EÜR-Auswertungen
 - kein Fokus auf USt-Voranmeldung/ELSTER
+- Alpha-Vorbereitung mit Schutz persistenter Nutzerdaten bei zukünftigen Updates
 
 ## Tech-Stack
 - Python 3.12
@@ -24,11 +25,12 @@ Atelier Buddy ist eine lokale Belegverwaltung für Künstler:innen, Bands und Kr
 ## Architekturgrenzen
 - Entry Point und Runtime-Konfig: `belegmanager/main.py`, `belegmanager/config.py`
 - UI nur in `belegmanager/ui/*` (Seiten/Theme), Fachlogik in `belegmanager/services/*`
-- Datenmodell in `belegmanager/models.py`, DB-Setup/Migrationen/Schema-Reset in `belegmanager/db.py`
+- Datenmodell in `belegmanager/models.py`, DB-Setup und interne Migrationen in `belegmanager/db.py`
 - Fachliche Zuordnungs-Wahrheit liegt in `cost_allocation` (nicht parallel in UI-Nebenfeldern)
 - Geldwerte immer als `*_cents` (Integer), nicht als Float speichern
 - Version-Single-Source-of-Truth: `pyproject.toml` (`[project].version`)
 - Persistente Laufzeitdaten liegen unter `data/` (DB + Archiv)
+- Schemaänderungen dürfen keine Nutzerdaten oder Archivdateien automatisch löschen
 
 ## Do-not-Rules
 - Keine Geschäftslogik in UI-Eventhandler duplizieren; Services nutzen
@@ -46,3 +48,4 @@ Atelier Buddy ist eine lokale Belegverwaltung für Künstler:innen, Bands und Kr
 3. Betroffene Kernflüsse manuell funktionieren (Beleg öffnen/speichern, Zuordnung, Suche/Filter)
 4. Keine neuen getrackten Nutzerdaten unter `data/` auftauchen
 5. Bei Verhaltensänderungen Doku in `README.md` oder `docs/developer/*` nachgezogen ist
+6. Datenbankstart und Migrationen sind ohne automatischen Datenverlust für DB und Archiv verifiziert

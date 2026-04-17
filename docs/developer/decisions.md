@@ -23,16 +23,20 @@ Warum:
 - ausreichend für den erwarteten lokalen Einsatz
 - Entwicklung bleibt leichtgewichtig
 
-## 3. Hard Reset bei Schema-Wechsel in der frühen Phase
+## 3. Versionierte interne Migrationen für die Alpha-Phase
 Entscheidung:
-- bei Marker-Mismatch werden DB und Archiv aktuell komplett neu aufgebaut
+- Schemaänderungen laufen über interne, versionierte Migrationen
+- bei nicht sicher migrierbarer oder inkonsistenter Alt-Datenbank blockiert der Start
 
 Warum:
-- das Produkt befindet sich noch in einer Phase mit schnellen Modelländerungen
-- komplexe Migrationen würden aktuell mehr Last als Nutzen erzeugen
+- Alpha-Vorbereitung braucht belastbaren Schutz für persistente Nutzerdaten
+- das aktuelle SQLite-/SQLModel-Setup lässt sich mit einem leichten internen Migrationsrahmen pragmatisch absichern
+- automatische Datenlöschung wäre für reale Nutzung zu riskant
 
 Konsequenz:
-- für spätere stabilere Releases sollte dieses Verhalten durch echte Migrationen ersetzt werden
+- `data/belegmanager.db` und `data/archive/` werden bei Schemaänderungen nie automatisch gelöscht
+- Migrationen werden in einer Metatabelle nachgehalten und beim Start in Reihenfolge ausgeführt
+- Fehler im Migrations- oder Validierungspfad stoppen die App lieber klar, als Daten unbemerkt zu verlieren
 
 ## 4. Ausgabenlogik über `cost_allocation`
 Entscheidung:

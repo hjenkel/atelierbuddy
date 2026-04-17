@@ -9,44 +9,35 @@ Atelier Buddy richtet sich an Künstler:innen, Bands und andere Solo- oder Klein
 
 Die App ist heute mehr als ein "einfacher Belegsammler": Sie verbindet Dokumentarchiv, OCR, fachliche Zuordnung, Ausgangsrechnungslogik, Stammdatenpflege und projektbezogene Auswertung in einer lokalen Anwendung.
 
-## Aktueller Produktfokus
-- Belege importieren, archivieren, per OCR erschließen und durchsuchbar machen
-- Ausgaben fachlich über Kostenkategorien, Unterkategorien und optional Projekte zuordnen
-- Verkäufe bzw. Ausgangsrechnungen mit Kontaktbezug und Positionszeilen verwalten
-- Einnahmen und Ausgaben für eine EÜR-nahe Sicht auswerten
-- lokalen, selbst betriebenen Einsatz statt Cloud- oder Team-ERP
+## Was kann Atelier Buddy?
+- Kontakte pflegen. Mögliche Kudnen, Partner, Presse und Co. 
+- Die eigenen Projekte (bspw. Kunstwerke) mit Erstelldatum, Foto und Preis verwalten
+- Zahlungsbelege archivieren (als PDFs / Bilder) und per Volltextsuche durchsuchen
+- Ausgaben zu Belegen fachlich über Kostenkategorien, Unterkategorien und Projekte zuordnen
+- Verkäufe und mehreren Positionen verwalten
+- Einnahmen und Ausgaben übersichtlich auswerten
 
-## Bewusste Grenzen
-- keine ELSTER-Integration
-- keine USt-Voranmeldung
-- keine Zahlungslogik für Einnahmen/Ausgaben mit eigener Buchungstabelle
-- keine PDF-Rechnungserzeugung aus Verkäufen
-- keine revisionssichere Buchhaltungs- oder Steuerlösung
-
-## Kernfunktionen
-- Login-Schutz mit einfacher Ersteinrichtung für den ersten Admin-Zugang
+## Weitere Funktionen
+- Login-Schutz mit einfacher Ersteinrichtung
 - Batch-Import von PDF-, JPG-, PNG- und HEIC-Dateien
-- OCR mit `ocrmypdf` und Volltextsuche via SQLite FTS5
-- Belegdetail mit Brutto/USt/Netto, Anbieter, Typ, Notizen und Vollständigkeitsstatus
-- Kostenzuordnung pro Beleg mit Standardmodus oder Split-Aufteilung
-- Stammdaten für Projekte, Kontakte, Kontaktkategorien, Anbieter und Kostenkategorien
-- Kontakte mit Adressbereich für rechnungsrelevante Stammdaten
-- Verkaufsverwaltung mit internem Nummernkreis, manueller Rechnungsnummer und Positionszeilen
+- OCR-Texterkennung und Volltextsuche in Belegen
+- Belegdetails mit Brutto/USt/Netto, Anbieter, Typ, Notizen
+- Kostenzuordnung pro Beleg mit Split-Aufteilung
+- Individuelle Verwaltung der Kontaktkategorien, Anbieter (Shops, Partner und Co) und Kostenkategorien.
+- Kontakt-Datenbank
+- Verkaufsverwaltung, welche Einnahmen darstellt und ausgehende Rechnungen archivieren kann.
 - Rechnungsdokument je Verkauf mit direktem Upload/Ersetzen in der Detailansicht
-- projektbezogene Verkaufspositionen mit Dezimalmengen und berechneten Zeilensummen
-- Einnahmenauswertung nach Rechnungsdatum und Projektdrilldown
+- Einnahmenauswertung mit Projektdrilldown
 - Soft-Delete für Belege und Verkäufe, inklusive Wiederherstellung
-- Fremdlizenz-Ansicht und Laufzeitinformationen in den Einstellungen
+- Validierung und Absicherung der Eingaben
 
-## Wichtige Betriebsrealität
-- Die App ist lokal-first und self-hosted gedacht.
+## Nutzung
+- Die App ist für den Betrieb auf einem Homeserver (z. B. Raspberry Pi) gedacht, kann aber auch  und lokal installiert werden.
 - Persistente Daten liegen unter `data/`.
-- Bei einem Wechsel von `SCHEMA_VERSION` in `belegmanager/db.py` erfolgt derzeit ein Hard Reset von Datenbank und Archiv.
-- Die App ist pre-alpha. Datenmodell, Workflows und UI können sich noch deutlich ändern.
+- Die App ist in Entwicklung. Funktionen und UI können sich noch deutlich ändern.
 
 ## Wichtige Hinweise
-- Die Software wird ohne Gewährleistung bereitgestellt.
-- Es gibt keine steuerliche oder rechtliche Freigabe durch eine Kanzlei.
+- Die Software wird ohne Gewährleistung bereitgestellt und ist explizit keine GoBD.
 - Nutzung erfolgt in eigener Verantwortung.
 - Regelmäßige Backups sind dringend empfohlen.
 
