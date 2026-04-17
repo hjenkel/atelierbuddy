@@ -497,7 +497,12 @@ def _icon_option_html(label: str, icon: str) -> str:
 
 
 @contextmanager
-def _shell(active_path: str, title: str, *, show_page_head: bool = True):
+def _shell(active_path: str, title: str, *, show_page_head: bool = True, navigate_to: Callable[[str], Any] | None = None):
+    def navigate(path: str) -> Any:
+        if navigate_to is not None:
+            return navigate_to(path)
+        return ui.navigate.to(path)
+
     def context_class(path: str) -> str:
         if path.startswith("/belege") or path.startswith("/lieferanten") or path.startswith("/kategorien") or path.startswith(
             "/import"
@@ -533,7 +538,7 @@ def _shell(active_path: str, title: str, *, show_page_head: bool = True):
 
     def toggle_sidebar() -> None:
         _NAV_STATE["sidebar_expanded"] = not bool(_NAV_STATE["sidebar_expanded"])
-        ui.navigate.to(active_path)
+        navigate(active_path)
 
     def toggle_group(group_key: str) -> None:
         next_open_groups = dict(_NAV_STATE.get("open_groups") or {})
@@ -554,13 +559,13 @@ def _shell(active_path: str, title: str, *, show_page_head: bool = True):
             next_open_groups[group_key] = True
             _NAV_STATE["open_groups"] = next_open_groups
             if first_path:
-                ui.navigate.to(first_path)
+                navigate(first_path)
             else:
-                ui.navigate.to(active_path)
+                navigate(active_path)
             return
         next_open_groups[group_key] = False
         _NAV_STATE["open_groups"] = next_open_groups
-        ui.navigate.to(active_path)
+        navigate(active_path)
 
     def nav_item(path: str, label: str, icon: str, *, nested: bool = False) -> None:
         active = active_path == path
@@ -580,7 +585,7 @@ def _shell(active_path: str, title: str, *, show_page_head: bool = True):
         ui.button(
             button_label,
             icon=icon,
-            on_click=lambda p=path: ui.navigate.to(p),
+            on_click=lambda p=path: navigate(p),
         ).props(button_props).classes(classes)
 
     def help_content_for_path(path: str) -> dict[str, str]:
@@ -617,11 +622,11 @@ def _shell(active_path: str, title: str, *, show_page_head: bool = True):
                                     ui.label(help_body).classes("text-sm")
                     ui.button(
                         icon="settings",
-                        on_click=lambda: ui.navigate.to("/einstellungen"),
+                        on_click=lambda: navigate("/einstellungen"),
                     ).props("flat round dense").classes("bm-global-icon-btn")
                     ui.button(
                         icon="logout",
-                        on_click=lambda: ui.navigate.to("/logout"),
+                        on_click=lambda: navigate("/logout"),
                     ).props("flat round dense").classes("bm-global-icon-btn")
 
         with ui.row().classes("bm-app-shell w-full"):
@@ -783,6 +788,56 @@ def register_pages(services: ServiceContainer) -> None:
 
     def open_in_new_tab(url: str) -> None:
         ui.run_javascript(f"window.open({json.dumps(url)}, '_blank')")
+
+    def create_dirty_guard(
+        flag_name: str,
+    ) -> tuple[Callable[[], None], Callable[[], None], Callable[[], bool], Callable[[str], Any]]:
+        dirty_state = {"dirty": False}
+        ui.run_javascript(
+            f"""
+            (() => {{
+              const flagName = {json.dumps(flag_name)};
+              window[flagName] = false;
+              window.__atelierBuddyDirtyGuards = window.__atelierBuddyDirtyGuards || {{}};
+              if (!window.__atelierBuddyDirtyGuards[flagName]) {{
+                const handler = (event) => {{
+                  if (!window[flagName]) return;
+                  event.preventDefault();
+                  event.returnValue = '';
+                  return '';
+                }};
+                window.addEventListener('beforeunload', handler);
+                window.__atelierBuddyDirtyGuards[flagName] = handler;
+              }}
+            }})();
+            """
+        )
+
+        def mark_dirty() -> None:
+            if dirty_state["dirty"]:
+                return
+            dirty_state["dirty"] = True
+            ui.run_javascript(f"window[{json.dumps(flag_name)}] = true;")
+
+        def mark_clean() -> None:
+            dirty_state["dirty"] = False
+            ui.run_javascript(f"window[{json.dumps(flag_name)}] = false;")
+
+        def is_dirty() -> bool:
+            return dirty_state["dirty"]
+
+        async def guarded_navigate(path: str) -> None:
+            if dirty_state["dirty"]:
+                should_leave = await ui.run_javascript(
+                    "return window.confirm('Es gibt ungespeicherte Änderungen. Seite wirklich verlassen?');",
+                    timeout=30,
+                )
+                if not should_leave:
+                    return
+            mark_clean()
+            ui.navigate.to(path)
+
+        return mark_dirty, mark_clean, is_dirty, guarded_navigate
 
     def open_import_dialog(on_import_done: Callable[[], None] | None = None) -> None:
         with ui.dialog() as dialog, ui.card().classes("bm-card p-5 w-[820px] max-w-full"):
@@ -1326,7 +1381,11 @@ def register_pages(services: ServiceContainer) -> None:
         except ValueError:
             rid = -1
 
-        with _shell("/belege", "Belegdetail", show_page_head=False):
+        mark_dirty, mark_clean, is_dirty, guarded_navigate = create_dirty_guard(
+            f"atelierBuddyReceiptDirty_{rid}_{uuid.uuid4().hex}"
+        )
+
+        with _shell("/belege", "Belegdetail", show_page_head=False, navigate_to=guarded_navigate):
             if rid <= 0:
                 with ui.card().classes("bm-card p-4 w-full"):
                     ui.label("Ungültige Beleg-ID")
@@ -1406,7 +1465,7 @@ def register_pages(services: ServiceContainer) -> None:
                     with ui.row().classes("items-center gap-2"):
                         cancel_btn = ui.button(
                             icon="close",
-                            on_click=lambda: ui.navigate.to("/belege"),
+                            on_click=lambda: guarded_navigate("/belege"),
                         ).props("flat round dense").classes("bm-icon-action-btn")
                         cancel_btn.tooltip("Abbrechen")
                         if preview_url:
@@ -2059,6 +2118,11 @@ def register_pages(services: ServiceContainer) -> None:
 
                         gross_input.on("update:model-value", lambda _: schedule_net_preview())
                         vat_input.on("update:model-value", lambda _: schedule_net_preview())
+                        date_input.on("update:model-value", lambda _: mark_dirty())
+                        supplier_input.on_value_change(lambda _: mark_dirty())
+                        gross_input.on("update:model-value", lambda _: mark_dirty())
+                        vat_input.on("update:model-value", lambda _: mark_dirty())
+                        notes_input.on("update:model-value", lambda _: mark_dirty())
                         gross_input.on("keydown.enter", lambda _: refresh_net_preview())
                         vat_input.on("keydown.enter", lambda _: refresh_net_preview())
                         gross_input.on("blur", lambda _: normalize_gross_on_blur())
@@ -2066,6 +2130,7 @@ def register_pages(services: ServiceContainer) -> None:
                         refresh_net_preview()
 
                         def refresh_allocation_summary() -> None:
+                            mark_dirty()
                             try:
                                 gross_cents = _parse_money_to_cents(gross_input.value, allow_negative=True)
                             except ValueError:
@@ -2387,12 +2452,15 @@ def register_pages(services: ServiceContainer) -> None:
                             vat_input.disable()
                             notes_input.disable()
 
+                        mark_clean()
+
                         def _detail_move_to_deleted(receipt_id_for_action: int | None) -> None:
                             if not receipt_id_for_action:
                                 return
                             try:
                                 services.receipt_service.move_to_trash(receipt_id_for_action)
                                 ui.notify("Beleg in Gelöschte Belege verschoben", type="positive")
+                                mark_clean()
                                 ui.navigate.to("/belege")
                             except Exception as exc:
                                 _notify_error("Löschen fehlgeschlagen", exc)
@@ -2403,6 +2471,7 @@ def register_pages(services: ServiceContainer) -> None:
                             try:
                                 services.receipt_service.restore_from_trash(receipt_id_for_action)
                                 ui.notify("Beleg wiederhergestellt", type="positive")
+                                mark_clean()
                                 ui.navigate.to("/belege")
                             except Exception as exc:
                                 _notify_error("Wiederherstellung fehlgeschlagen", exc)
@@ -2471,6 +2540,7 @@ def register_pages(services: ServiceContainer) -> None:
                                 return
 
                             ui.notify("Beleg gespeichert", type="positive")
+                            mark_clean()
                             ui.navigate.to("/belege")
 
     @ui.page("/verkaeufe")
@@ -2843,7 +2913,11 @@ def register_pages(services: ServiceContainer) -> None:
         except ValueError:
             oid = -1
 
-        with _shell("/verkaeufe", "Verkaufsdetail", show_page_head=False):
+        mark_dirty, mark_clean, is_dirty, guarded_navigate = create_dirty_guard(
+            f"atelierBuddyOrderDirty_{oid}_{uuid.uuid4().hex}"
+        )
+
+        with _shell("/verkaeufe", "Verkaufsdetail", show_page_head=False, navigate_to=guarded_navigate):
             if oid <= 0:
                 with ui.card().classes("bm-card p-4 w-full"):
                     ui.label("Ungültige Verkaufs-ID")
@@ -2884,12 +2958,18 @@ def register_pages(services: ServiceContainer) -> None:
                 or bool((order.invoice_number or "").strip())
                 or bool((order.invoice_document_path or "").strip())
             )
-            invoice_document_url = to_files_url(order.invoice_document_path)
-            invoice_document_name = (
-                (order.invoice_document_original_filename or "").strip()
+            document_state: dict[str, str | None] = {
+                "path": order.invoice_document_path,
+                "name": (order.invoice_document_original_filename or "").strip()
                 or Path(order.invoice_document_path or "").name
-                or "Rechnungsdokument"
-            )
+                or None,
+            }
+
+            def current_invoice_document_url() -> str | None:
+                return to_files_url(document_state.get("path"))
+
+            def current_invoice_document_name() -> str:
+                return (document_state.get("name") or "").strip() or Path(document_state.get("path") or "").name or "Rechnungsdokument"
 
             item_rows: list[dict[str, Any]] = []
             if order.items:
@@ -2907,12 +2987,12 @@ def register_pages(services: ServiceContainer) -> None:
             if not item_rows:
                 item_rows.append({"description": "", "quantity_text": "1", "unit_price_text": "", "project_id": None})
             project_mode_enabled = _uses_position_project_mode(item_rows)
-
             async def handle_invoice_document_upload(event: events.MultiUploadEventArguments) -> None:
                 if not event.files:
                     return
                 file_upload = event.files[0]
                 new_document_path: Path | None = None
+                was_dirty = is_dirty()
                 try:
                     new_document_path = await save_uploaded_order_invoice(file_upload, oid)
                     old_document_path = services.order_service.set_invoice_document(
@@ -2922,25 +3002,37 @@ def register_pages(services: ServiceContainer) -> None:
                     )
                     if old_document_path and old_document_path != str(new_document_path):
                         safe_delete_file(old_document_path)
+                    document_state["path"] = str(new_document_path)
+                    document_state["name"] = file_upload.name
                     ui.notify("Rechnungsdokument gespeichert", type="positive")
-                    ui.navigate.to(f"/verkaeufe/{oid}")
+                    render_invoice_document_controls()
+                    refresh_total_preview()
+                    if not was_dirty:
+                        mark_clean()
                 except Exception as exc:
                     if new_document_path is not None:
                         safe_delete_file(new_document_path)
                     _notify_error("Rechnungsdokument konnte nicht gespeichert werden", exc)
 
             def open_invoice_document() -> None:
+                invoice_document_url = current_invoice_document_url()
                 if not invoice_document_url:
                     ui.notify("Kein Rechnungsdokument vorhanden", type="warning")
                     return
                 ui.run_javascript(f"window.open({json.dumps(invoice_document_url)}, '_blank', 'noopener')")
 
             def remove_invoice_document() -> None:
+                was_dirty = is_dirty()
                 try:
                     old_document_path = services.order_service.remove_invoice_document(oid)
                     safe_delete_file(old_document_path)
+                    document_state["path"] = None
+                    document_state["name"] = None
                     ui.notify("Rechnungsdokument entfernt", type="positive")
-                    ui.navigate.to(f"/verkaeufe/{oid}")
+                    render_invoice_document_controls()
+                    refresh_total_preview()
+                    if not was_dirty:
+                        mark_clean()
                 except Exception as exc:
                     _notify_error("Rechnungsdokument konnte nicht entfernt werden", exc)
 
@@ -2965,7 +3057,7 @@ def register_pages(services: ServiceContainer) -> None:
                     with ui.row().classes("items-center gap-2"):
                         back_btn = ui.button(
                             icon="close",
-                            on_click=lambda: ui.navigate.to("/verkaeufe"),
+                            on_click=lambda: guarded_navigate("/verkaeufe"),
                         ).props("flat round dense").classes("bm-icon-action-btn")
                         back_btn.tooltip("Zurück zu Verkäufen")
                     with ui.row().classes("items-center gap-2"):
@@ -3025,32 +3117,7 @@ def register_pages(services: ServiceContainer) -> None:
                     with ui.card().classes("bm-invoice-section bm-card p-4 min-w-[320px] flex-[1_1_360px] gap-3"):
                         with ui.row().classes("w-full items-center justify-between gap-2"):
                             ui.label("Rechnung").classes("text-base font-semibold")
-                            with ui.row().classes("items-center gap-1"):
-                                if invoice_document_url:
-                                    view_document_btn = ui.button(
-                                        icon="visibility",
-                                        on_click=open_invoice_document,
-                                    ).props("flat round dense").classes("bm-icon-action-btn")
-                                    view_document_btn.tooltip("Dokument anzeigen")
-                                if not is_deleted and not invoice_document_url:
-                                    document_upload = ui.upload(
-                                        multiple=False,
-                                        auto_upload=True,
-                                        on_multi_upload=handle_invoice_document_upload,
-                                        label="",
-                                    ).classes("bm-hidden-upload")
-                                    document_upload.props("accept=.pdf,.jpg,.jpeg,.png,.heic,.heif")
-                                    upload_btn = ui.button(
-                                        icon="upload_file",
-                                        on_click=lambda: document_upload.run_method("pickFiles"),
-                                    ).props("flat round dense").classes("bm-icon-action-btn")
-                                    upload_btn.tooltip("Dokument hochladen")
-                                if invoice_document_url and not is_deleted:
-                                    remove_document_btn = ui.button(
-                                        icon="delete_outline",
-                                        on_click=confirm_remove_invoice_document,
-                                    ).props("flat round dense").classes("bm-icon-action-btn bm-icon-action-btn--danger")
-                                    remove_document_btn.tooltip("Dokument entfernen")
+                            document_actions_container = ui.row().classes("items-center gap-1")
 
                         with ui.row().classes("w-full gap-3 wrap items-end"):
                             invoice_date_input = ui.input(
@@ -3061,17 +3128,48 @@ def register_pages(services: ServiceContainer) -> None:
                                 "Rechnungsnummer",
                                 value=order.invoice_number or "",
                             ).classes("min-w-[180px] flex-1")
-                        document_hint = (
-                            f"Hochgeladen: {invoice_document_name}"
-                            if invoice_document_url
-                            else "Noch kein Rechnungsdokument hinterlegt."
-                        )
-                        ui.label(document_hint).classes("text-xs text-slate-600")
+                        document_hint_label = ui.label("").classes("text-xs text-slate-600")
 
                 item_editor = ui.column().classes("w-full gap-2")
                 with ui.row().classes("w-full items-end justify-between gap-3 wrap"):
                     ui.label("Alle Preise ohne Umsatzsteuer eingeben (§19 UStG).").classes("text-xs text-slate-600")
                     total_preview = ui.input("Gesamtsumme", value="-").props("readonly").classes("w-48")
+
+                def render_invoice_document_controls() -> None:
+                    invoice_document_url = current_invoice_document_url()
+                    document_actions_container.clear()
+                    with document_actions_container:
+                        if invoice_document_url:
+                            view_document_btn = ui.button(
+                                icon="visibility",
+                                on_click=open_invoice_document,
+                            ).props("flat round dense").classes("bm-icon-action-btn")
+                            view_document_btn.tooltip("Dokument anzeigen")
+                        if not is_deleted and not invoice_document_url:
+                            document_upload = ui.upload(
+                                multiple=False,
+                                auto_upload=True,
+                                on_multi_upload=handle_invoice_document_upload,
+                                label="",
+                            ).classes("bm-hidden-upload")
+                            document_upload.props("accept=.pdf,.jpg,.jpeg,.png,.heic,.heif")
+                            upload_btn = ui.button(
+                                icon="upload_file",
+                                on_click=lambda: document_upload.run_method("pickFiles"),
+                            ).props("flat round dense").classes("bm-icon-action-btn")
+                            upload_btn.tooltip("Dokument hochladen")
+                        if invoice_document_url and not is_deleted:
+                            remove_document_btn = ui.button(
+                                icon="delete_outline",
+                                on_click=confirm_remove_invoice_document,
+                            ).props("flat round dense").classes("bm-icon-action-btn bm-icon-action-btn--danger")
+                            remove_document_btn.tooltip("Dokument entfernen")
+
+                    document_hint_label.text = (
+                        f"Hochgeladen: {current_invoice_document_name()}"
+                        if invoice_document_url
+                        else "Noch kein Rechnungsdokument hinterlegt."
+                    )
 
                 def parse_row_total_cents(row: dict[str, Any]) -> int | None:
                     try:
@@ -3116,7 +3214,7 @@ def register_pages(services: ServiceContainer) -> None:
                 def current_status_label() -> str:
                     has_invoice_number = bool((invoice_number_input.value or "").strip())
                     has_invoice_date = _parse_iso_date(invoice_date_input.value) is not None
-                    has_invoice_document = bool(invoice_document_url)
+                    has_invoice_document = bool(current_invoice_document_url())
                     if has_invoice_date and has_invoice_number and has_invoice_document:
                         return "Abgerechnet"
                     if (has_invoice_date or has_invoice_number) and not has_invoice_document:
@@ -3167,10 +3265,12 @@ def register_pages(services: ServiceContainer) -> None:
                             )
 
                         def on_description_change() -> None:
+                            mark_dirty()
                             row["description"] = description_input.value or ""
                             refresh_total_preview()
 
                         def on_quantity_change() -> None:
+                            mark_dirty()
                             row["quantity_text"] = quantity_input.value or ""
                             update_total_label()
                             refresh_total_preview()
@@ -3180,11 +3280,13 @@ def register_pages(services: ServiceContainer) -> None:
                                 quantity_input.value = _normalize_quantity_input(quantity_input.value)
                             except ValueError:
                                 return
+                            mark_dirty()
                             row["quantity_text"] = quantity_input.value or ""
                             update_total_label()
                             refresh_total_preview()
 
                         def on_unit_price_change() -> None:
+                            mark_dirty()
                             row["unit_price_text"] = unit_price_input.value or ""
                             update_total_label()
                             refresh_total_preview()
@@ -3197,11 +3299,13 @@ def register_pages(services: ServiceContainer) -> None:
                                 )
                             except ValueError:
                                 return
+                            mark_dirty()
                             row["unit_price_text"] = unit_price_input.value or ""
                             update_total_label()
                             refresh_total_preview()
 
                         def on_project_change() -> None:
+                            mark_dirty()
                             row["project_id"] = int(project_input.value) if project_input.value else None
                             refresh_total_preview()
 
@@ -3224,11 +3328,13 @@ def register_pages(services: ServiceContainer) -> None:
                             render_item_row(row)
 
                 def add_row() -> None:
+                    mark_dirty()
                     item_rows.append({"description": "", "quantity_text": "1", "unit_price_text": "", "project_id": None})
                     render_item_editor()
                     refresh_total_preview()
 
                 def remove_row(row: dict[str, Any]) -> None:
+                    mark_dirty()
                     if len(item_rows) == 1:
                         item_rows[0] = {"description": "", "quantity_text": "1", "unit_price_text": "", "project_id": None}
                     else:
@@ -3281,6 +3387,7 @@ def register_pages(services: ServiceContainer) -> None:
                         _notify_error("Verkauf konnte nicht gespeichert werden", exc)
                         return
                     ui.notify("Verkauf gespeichert", type="positive")
+                    mark_clean()
                     ui.navigate.to("/verkaeufe")
 
                 def _detail_move_to_deleted() -> None:
@@ -3290,6 +3397,7 @@ def register_pages(services: ServiceContainer) -> None:
                         _notify_error("Löschen fehlgeschlagen", exc)
                         return
                     ui.notify("Verkauf in Gelöschte Verkäufe verschoben", type="positive")
+                    mark_clean()
                     ui.navigate.to("/verkaeufe")
 
                 def _detail_restore() -> None:
@@ -3299,11 +3407,13 @@ def register_pages(services: ServiceContainer) -> None:
                         _notify_error("Wiederherstellung fehlgeschlagen", exc)
                         return
                     ui.notify("Verkauf wiederhergestellt", type="positive")
+                    mark_clean()
                     ui.navigate.to(f"/verkaeufe/{oid}")
 
                 def apply_head_project() -> None:
                     if bool(project_mode_input.value):
                         return
+                    mark_dirty()
                     selected_project_id = head_project_input.value
                     for row in item_rows:
                         row["project_id"] = int(selected_project_id) if isinstance(selected_project_id, int) else None
@@ -3311,6 +3421,7 @@ def register_pages(services: ServiceContainer) -> None:
                     refresh_total_preview()
 
                 def on_project_mode_change() -> None:
+                    mark_dirty()
                     apply_project_mode_visibility()
                     render_item_editor()
                     refresh_total_preview()
@@ -3318,11 +3429,16 @@ def register_pages(services: ServiceContainer) -> None:
                 head_project_input.value = _common_project_id_from_rows(item_rows)
                 head_project_input.on_value_change(lambda _: apply_head_project())
                 project_mode_input.on("update:model-value", lambda _: on_project_mode_change())
-                invoice_date_input.on("update:model-value", lambda _: refresh_total_preview())
-                invoice_number_input.on("update:model-value", lambda _: refresh_total_preview())
+                contact_input.on_value_change(lambda _: mark_dirty())
+                sale_date_input.on("update:model-value", lambda _: mark_dirty())
+                notes_input.on("update:model-value", lambda _: mark_dirty())
+                invoice_date_input.on("update:model-value", lambda _: (mark_dirty(), refresh_total_preview()))
+                invoice_number_input.on("update:model-value", lambda _: (mark_dirty(), refresh_total_preview()))
                 apply_project_mode_visibility()
+                render_invoice_document_controls()
                 render_item_editor()
                 refresh_total_preview()
+                mark_clean()
 
     @ui.page("/projekte")
     def projects_page() -> None:
@@ -3517,7 +3633,11 @@ def register_pages(services: ServiceContainer) -> None:
         except ValueError:
             pid = -1
 
-        with _shell("/projekte", "Projektdetail"):
+        mark_dirty, mark_clean, is_dirty, guarded_navigate = create_dirty_guard(
+            f"atelierBuddyProjectDirty_{pid}_{uuid.uuid4().hex}"
+        )
+
+        with _shell("/projekte", "Projektdetail", navigate_to=guarded_navigate):
             if pid <= 0:
                 with ui.card().classes("bm-card p-4 w-full"):
                     ui.label("Ungültige Projekt-ID")
@@ -3536,7 +3656,7 @@ def register_pages(services: ServiceContainer) -> None:
             with ui.card().classes("bm-card p-4 w-full"):
                 with ui.row().classes("w-full items-center justify-between"):
                     ui.label(project.name).classes("text-3xl font-semibold")
-                    ui.button("Zurück zu Projekten", icon="arrow_back", on_click=lambda: ui.navigate.to("/projekte")).props(
+                    ui.button("Zurück zu Projekten", icon="arrow_back", on_click=lambda: guarded_navigate("/projekte")).props(
                         "flat"
                     )
 
@@ -3564,7 +3684,13 @@ def register_pages(services: ServiceContainer) -> None:
                                 if old_cover_path and old_cover_path != str(new_cover_path):
                                     safe_delete_file(old_cover_path)
                                 ui.notify("Projekt-Cover gespeichert", type="positive")
-                                ui.navigate.to(f"/projekte/{pid}")
+                                if is_dirty():
+                                    ui.notify(
+                                        "Ungespeicherte Projektdaten bleiben erhalten; Cover wird nach dem Speichern oder Neuladen sichtbar.",
+                                        type="info",
+                                    )
+                                else:
+                                    ui.navigate.to(f"/projekte/{pid}")
                             except Exception as exc:
                                 _notify_error("Cover konnte nicht gespeichert werden", exc)
 
@@ -3589,6 +3715,11 @@ def register_pages(services: ServiceContainer) -> None:
                             value=project.created_on.isoformat() if project.created_on else "",
                         ).props("type=date clearable").classes("w-full")
                         active_input = ui.checkbox("Aktiv", value=project.active)
+                        name_input.on("update:model-value", lambda _: mark_dirty())
+                        price_input.on("update:model-value", lambda _: mark_dirty())
+                        created_on_input.on("update:model-value", lambda _: mark_dirty())
+                        active_input.on("update:model-value", lambda _: mark_dirty())
+                        mark_clean()
 
                         with ui.row().classes("w-full justify-between gap-2"):
                             ui.button(
@@ -3612,6 +3743,7 @@ def register_pages(services: ServiceContainer) -> None:
                                     created_on=_parse_iso_date(created_on_input.value),
                                 )
                                 ui.notify("Projekt gespeichert", type="positive")
+                                mark_clean()
                                 ui.navigate.to(f"/projekte/{pid}")
                             except Exception as exc:
                                 _notify_error("Speichern fehlgeschlagen", exc)
@@ -3621,6 +3753,7 @@ def register_pages(services: ServiceContainer) -> None:
                                 old_cover_path = masterdata.delete_project(project_id=pid)
                                 safe_delete_file(old_cover_path)
                                 ui.notify("Projekt entfernt", type="positive")
+                                mark_clean()
                                 ui.navigate.to("/projekte")
                             except Exception as exc:
                                 _notify_error("Projekt konnte nicht gelöscht werden", exc)
