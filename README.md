@@ -2,7 +2,7 @@
 
 Lokale Web-App für Belegverwaltung, Ausgangsrechnungen und betriebliche Auswertungen in kreativen Arbeitskontexten.
 
-Aktuelle Version: `0.3.0` (pre-alpha)
+Aktuelle Version: `0.3.1`
 
 ## Was ist Atelier Buddy?
 Atelier Buddy richtet sich an Künstler:innen, Bands und andere Solo- oder Kleinstteams, die Belege, Kontakte, Projekte und Verkäufe an einem Ort pflegen möchten, ohne in klassische ERP- oder Steuerkanzlei-Software zu wechseln.
@@ -36,38 +36,13 @@ Atelier Buddy richtet sich an Künstler:innen, Bands und andere Solo- oder Klein
 - Persistente Daten liegen unter `data/`.
 - Die App ist in Entwicklung. Funktionen und UI können sich noch deutlich ändern.
 
-## Wichtige Hinweise
-- Die Software wird ohne Gewährleistung bereitgestellt und ist explizit keine GoBD.
-- Nutzung erfolgt in eigener Verantwortung.
-- Regelmäßige Backups sind dringend empfohlen.
+## Installation mit Docker
+Für einen Homeserver solltest du ein Verzeichnis anlegen. Dort legst eine docker-compose.yml an, die den unten angegebenen Inhalt enthält.
 
-### Vibe-Coding Transparenz
-Diese App wurde zu einem sehr großen Teil mit KI-Coding-Assistenten erstellt. Ich bin daher für jeden echten Programmierer und Experten dankbar, der mal einen Blick auf den Code werfen kann. Hinweise oder Verbesserungen sind ausdrücklich erwünscht. Insbesondere im Bereich Sicherheit, Stabilität und Performance.
-
-## Schnellstart lokal mit Docker
-### Voraussetzungen
-- Docker Desktop oder Docker Engine mit Compose Plugin
-
-### Start
-```bash
-git clone https://github.com/hjenkel/atelierbuddy.git
-cd atelierbuddy
-echo "BM_SESSION_SECRET=$(openssl rand -hex 32)" > .env
-docker compose up --build -d
-```
-
-App-URL: `http://localhost:12321`
-
-Diese Variante baut das Image lokal aus dem Checkout und ist für Entwicklung oder Einzelinstallationen gedacht.
-
-### Ersteinrichtung
-Beim ersten Start muss ein Admin-Account über `/setup` angelegt werden.
-
-1. `/setup` im Browser öffnen.
-2. Ersten Benutzer anlegen.
-
-## Serverbetrieb mit Release-Image
-Für einen Homeserver oder eine andere dauerhafte Installation kann statt eines lokalen Builds das veröffentlichte Image aus GitHub Container Registry verwendet werden.
+Wichtig:
+- `BM_SESSION_SECRET` muss vor dem ersten Start durch einen eigenen zufaelligen Wert ersetzt werden.
+- Einen geeigneten Wert kannst du z. B. mit `openssl rand -hex 32` erzeugen.
+- Das Secret sollte bei Updates unveraendert bleiben, damit bestehende Sessions nicht ungueltig werden.
 
 Empfohlenes Compose-Beispiel:
 
@@ -79,22 +54,10 @@ services:
     ports:
       - "12321:8080"
     environment:
-      BM_HOST: "0.0.0.0"
-      BM_SESSION_SECRET: "${BM_SESSION_SECRET:-}"
-      PYTHONUNBUFFERED: "1"
+      BM_SESSION_SECRET: "HIER ZUFÄLLIGEN CODE EINGEBEN"
     volumes:
       - atelier_buddy_data:/app/data
     restart: unless-stopped
-    healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080', timeout=5).read()\"",
-        ]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 30s
 
 volumes:
   atelier_buddy_data:
@@ -103,14 +66,15 @@ volumes:
 Start oder Update auf dem Server:
 
 ```bash
+cd /dein/Verzeichnis
 docker compose pull
 docker compose up -d
 ```
 
-Wichtig:
-- Persistente Daten liegen weiterhin im Volume unter `/app/data`.
-- Datenbank und Archivdateien sind nicht Teil des Docker-Images.
-- Für reproduzierbare Releases kann statt `latest` auch ein Versions-Tag wie `ghcr.io/hjenkel/atelierbuddy:0.3.0` verwendet werden.
+Hinweise:
+- Die App ist danach standardmäßig unter `http://hostname:12321` erreichbar.
+- Persistente Daten liegen im Volume unter `/app/data`.
+- Für reproduzierbare Releases kann statt `latest` auch ein Versions-Tag wie `ghcr.io/hjenkel/atelierbuddy:0.3.1` verwendet werden.
 
 ## Lokale Installation
 ### Voraussetzungen
@@ -142,29 +106,9 @@ python -m belegmanager
 
 App-URL lokal: `http://127.0.0.1:8080`
 
-## Konfiguration
-Wichtige ENV-Parameter:
-- `BM_SESSION_SECRET`: Secret für signierte Session-Cookies
-- `BM_ALLOWED_HOSTS`: Host-Allowlist, Default `*`
-- `BM_ALLOWED_ORIGINS`: optionale Origin-Allowlist
-- `BM_SESSION_IDLE_MINUTES`: Default `480`
-- `BM_SESSION_MAX_AGE_HOURS`: Default `168`
-- `BM_SECURE_COOKIES`: `auto`, `true` oder `false`
-- `BM_MAX_UPLOAD_MB`: Default `25`
-- `BM_OCR_TIMEOUT_SECONDS`: Default `300`
-- `BM_OCR_LANGUAGES`: Default `deu+eng`
 
-## Daten und Backups
-Persistente Laufzeitdaten:
-- `data/belegmanager.db`
-- `data/archive/`
-
-Einfaches Backup:
-```bash
-tar -czf atelierbuddy-backup-$(date +%Y-%m-%d).tar.gz data
-```
-
-Im Docker-Betrieb mit benanntem Volume sollte stattdessen das Volume bzw. der gemountete Datenpfad gesichert werden.
+### Ersteinrichtung
+Beim ersten Start wird ein Admin-Account angelegt.
 
 ## Entwicklung
 - Start lokal: `python -m belegmanager`
@@ -177,7 +121,15 @@ Im Docker-Betrieb mit benanntem Volume sollte stattdessen das Volume bzw. der ge
 - Überblick: [docs/README.md](docs/README.md)
 - Technische Doku: [docs/developer/README.md](docs/developer/README.md)
 
-## Lizenz und Rechtliches
+## Hinweise
+- Die Software wird ohne Gewährleistung bereitgestellt und ist explizit keine GoBD.
+- Nutzung erfolgt in eigener Verantwortung.
+- Regelmäßige Backups sind dringend empfohlen.
+
+### Vibe-Coding Transparenz
+Diese App wurde zu einem sehr großen Teil mit KI-Coding-Assistenten erstellt. Ich bin daher für jeden echten Programmierer und Experten dankbar, der mal einen Blick auf den Code werfen kann. Hinweise oder Verbesserungen sind ausdrücklich erwünscht. Insbesondere im Bereich Sicherheit, Stabilität und Performance.
+
+### Lizenz und Rechtliches
 - Lizenz: `AGPL-3.0-or-later`
 - Copyright: `Copyright (c) 2026 Hanno Jenkel`
 - Fremdlizenzen sind in der App unter `Einstellungen` einsehbar.

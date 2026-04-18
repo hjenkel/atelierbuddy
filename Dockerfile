@@ -6,7 +6,8 @@ ARG BUILD_DATE=unknown
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=1
+    PIP_NO_CACHE_DIR=1 \
+    BM_HOST=0.0.0.0
 
 WORKDIR /app
 
@@ -44,5 +45,8 @@ RUN useradd --create-home --uid 10001 appuser \
 USER appuser
 
 EXPOSE 8080
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=5 \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080', timeout=5).read()"
 
 CMD ["python", "-m", "belegmanager"]

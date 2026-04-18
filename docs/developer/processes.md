@@ -1,7 +1,7 @@
 # Prozesse und Flows
 
 Quelle: `belegmanager/services/*`, `belegmanager/ui/pages.py`, `belegmanager/app_state.py`  
-Version-Single-Source: `pyproject.toml` (`0.3.0`)
+Version-Single-Source: `pyproject.toml` (`0.3.1`)
 
 ## Service-Architektur
 `app_state.get_services()` baut einen gemeinsamen Service-Container mit:

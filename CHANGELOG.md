@@ -4,7 +4,7 @@ Alle wichtigen Änderungen an diesem Projekt werden in dieser Datei dokumentiert
 
 Das Format orientiert sich an Keep a Changelog, und dieses Projekt folgt Semantic Versioning (`0.y.z` vor `1.0`).
 
-## [0.3.0] - 2026-04-18
+## [0.3.1] - 2026-04-18
 ### Hinzugefügt
 - Installweites Rechnungssteller-Profil mit Bankverbindung, Steuerkennzeichen, Zahlungsziel und Logo in den Einstellungen ergänzt.
 - Automatische Rechnungs-PDF-Erzeugung fuer Verkäufe ueber ein festes HTML/CSS-Standardtemplate ergänzt.
