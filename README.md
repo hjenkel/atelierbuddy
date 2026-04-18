@@ -169,21 +169,6 @@ Im Docker-Betrieb mit benanntem Volume sollte stattdessen das Volume bzw. der ge
 - Versionsquelle: `pyproject.toml` -> `[project].version`
 - Changelog: [CHANGELOG.md](CHANGELOG.md)
 
-## Docker-Releases
-Der Docker-Release-Workflow veröffentlicht Images nach `ghcr.io/hjenkel/atelierbuddy`, aber nur für Git-Tags im Format `vX.Y.Z`.
-
-Release-Ablauf:
-1. Version in `pyproject.toml` erhöhen.
-2. `CHANGELOG.md` aktualisieren.
-3. Commit erstellen und Git-Tag `vX.Y.Z` setzen.
-4. Tag pushen.
-5. GitHub Actions veröffentlicht die Tags `X.Y.Z`, `latest` und `sha-<commit>` nach GHCR.
-6. Server mit `docker compose pull && docker compose up -d` aktualisieren.
-
-Sicherheitsnetz:
-- Der Release-Workflow bricht ab, wenn Git-Tag und `pyproject.toml`-Version nicht übereinstimmen.
-- CI prüft bei Pull Requests und Pushes nach `main` sowohl die Python-Tests als auch einen Docker-Build ohne Push.
-
 ## Dokumentation
 - Überblick: [docs/README.md](docs/README.md)
 - Technische Doku: [docs/developer/README.md](docs/developer/README.md)

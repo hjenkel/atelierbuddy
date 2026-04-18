@@ -12,5 +12,5 @@ Version-Quelle (Single Source of Truth): `pyproject.toml` -> `[project].version`
 ## Struktur
 - [Developer-Dokumentation](./developer/README.md)
 
-## Grundsatz
-Die Doku beschreibt das implementierte Verhalten der App. Wenn Doku und Code voneinander abweichen, gilt der Code als Quelle und die Doku muss nachgezogen werden.
+## Coming soon
+Eine Dokumentation zur Nutzung der Software ist aktuell noch in Arbeit. Bisher gibt aufgrund des frühen Entwicklungsstatus nur eine Developer Dokumentation
