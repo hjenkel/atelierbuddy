@@ -42,6 +42,7 @@ DOC_TYPE_CREDIT_NOTE = "credit_note"
 LOG = logging.getLogger(__name__)
 _NAV_STATE = {
     "sidebar_expanded": True,
+    "sidebar_mobile_open": False,
     "open_groups": {"finance": True, "management": True},
     "last_path": None,
 }
@@ -487,13 +488,40 @@ def _extract_model_value(event: Any, fallback: Any = None) -> Any:
     return payload if payload is not None else fallback
 
 
+class _ResponsiveTableHandle:
+    def __init__(self, container: Any, desktop_table: ui.table, mobile_table: ui.table) -> None:
+        self.container = container
+        self.desktop_table = desktop_table
+        self.mobile_table = mobile_table
+
+    def add_slot(self, name: str, template: str) -> "_ResponsiveTableHandle":
+        self.desktop_table.add_slot(name, template)
+        return self
+
+    def on(self, event: str, handler: Callable[..., Any]) -> "_ResponsiveTableHandle":
+        self.desktop_table.on(event, handler)
+        self.mobile_table.on(event, handler)
+        return self
+
+    def classes(self, value: str | None = None, **kwargs: Any) -> "_ResponsiveTableHandle":
+        if value is not None:
+            self.container.classes(value)
+            self.desktop_table.classes(value)
+            self.mobile_table.classes(value)
+        if kwargs:
+            self.container.classes(**kwargs)
+            self.desktop_table.classes(**kwargs)
+            self.mobile_table.classes(**kwargs)
+        return self
+
+
 def _erp_table(
     *,
     columns: list[dict[str, Any]],
     rows: list[dict[str, Any]],
     row_key: str = "id",
     rows_per_page: int = 25,
-) -> ui.table:
+) -> ui.table | _ResponsiveTableHandle:
     table = ui.table(
         columns=columns,
         rows=rows,
@@ -502,6 +530,78 @@ def _erp_table(
     ).classes("w-full bm-card bm-table")
     table.props("flat dense wrap-cells separator=horizontal")
     return table
+
+
+def _responsive_erp_table(
+    *,
+    columns: list[dict[str, Any]],
+    rows: list[dict[str, Any]],
+    row_key: str = "id",
+    rows_per_page: int = 25,
+    mobile_actions_slot: str | None = None,
+) -> _ResponsiveTableHandle:
+    with ui.column().classes("w-full gap-0 bm-responsive-table") as table_container:
+        desktop_table = ui.table(
+            columns=columns,
+            rows=rows,
+            row_key=row_key,
+            pagination={"rowsPerPage": rows_per_page},
+        ).classes("w-full bm-card bm-table bm-table--desktop")
+        desktop_table.props("flat dense wrap-cells separator=horizontal")
+
+        mobile_table = ui.table(
+            columns=[{"name": "mobile", "label": "", "field": "mobile"}],
+            rows=rows,
+            row_key=row_key,
+            pagination={"rowsPerPage": rows_per_page},
+        ).classes("w-full bm-card bm-table bm-table--mobile")
+        mobile_table.props("flat dense hide-header separator=none")
+        mobile_table.add_slot(
+            "body",
+            f"""
+            <q-tr :props="props" class="bm-mobile-table-row" @click="$parent.$emit('rowClick', props.row)">
+              <q-td key="mobile" :props="props" class="bm-mobile-table-cell">
+                <div class="bm-mobile-table-card">
+                  <div class="bm-mobile-table-head">
+                    <div class="bm-mobile-table-main">
+                      <div class="bm-mobile-table-title">{{{{ props.row.mobile_title || '-' }}}}</div>
+                      <div v-if="props.row.mobile_title_note" class="bm-mobile-table-title-note">
+                        {{{{ props.row.mobile_title_note }}}}
+                      </div>
+                    </div>
+                    <div v-if="props.row.mobile_badge || {str(bool(mobile_actions_slot)).lower()}" class="bm-mobile-table-side" @click.stop>
+                      <q-badge
+                        v-if="props.row.mobile_badge"
+                        :color="props.row.mobile_badge_color || 'grey-6'"
+                      >
+                        {{{{ props.row.mobile_badge }}}}
+                      </q-badge>
+                      <q-tooltip v-if="props.row.mobile_badge_tooltip">
+                        {{{{ props.row.mobile_badge_tooltip }}}}
+                      </q-tooltip>
+                      {mobile_actions_slot or ""}
+                    </div>
+                  </div>
+                  <div v-if="props.row.mobile_primary_left || props.row.mobile_primary_right" class="bm-mobile-table-detail-row">
+                    <span v-if="props.row.mobile_primary_left" class="bm-mobile-table-detail">
+                      {{{{ props.row.mobile_primary_left }}}}
+                    </span>
+                    <span v-if="props.row.mobile_primary_right" class="bm-mobile-table-detail bm-mobile-table-detail--right">
+                      {{{{ props.row.mobile_primary_right }}}}
+                    </span>
+                  </div>
+                  <div v-if="props.row.mobile_secondary" class="bm-mobile-table-detail-row">
+                    <span class="bm-mobile-table-detail bm-mobile-table-detail--muted">
+                      {{{{ props.row.mobile_secondary }}}}
+                    </span>
+                  </div>
+                </div>
+              </q-td>
+            </q-tr>
+            """,
+        )
+
+    return _ResponsiveTableHandle(container=table_container, desktop_table=desktop_table, mobile_table=mobile_table)
 
 
 def _icon_option_html(label: str, icon: str) -> str:
@@ -515,7 +615,9 @@ def _icon_option_html(label: str, icon: str) -> str:
 
 @contextmanager
 def _shell(active_path: str, title: str, *, show_page_head: bool = True, navigate_to: Callable[[str], Any] | None = None):
-    def navigate(path: str) -> Any:
+    def navigate(path: str, *, close_mobile: bool = True) -> Any:
+        if close_mobile:
+            _NAV_STATE["sidebar_mobile_open"] = False
         if navigate_to is not None:
             return navigate_to(path)
         return ui.navigate.to(path)
@@ -536,6 +638,7 @@ def _shell(active_path: str, title: str, *, show_page_head: bool = True, navigat
         return "bm-context-dashboard"
 
     is_expanded = bool(_NAV_STATE["sidebar_expanded"])
+    is_mobile_sidebar_open = bool(_NAV_STATE["sidebar_mobile_open"])
 
     def group_active(group: dict[str, Any]) -> bool:
         return any(active_path == item.get("path") for item in group.get("items", []))
@@ -555,7 +658,17 @@ def _shell(active_path: str, title: str, *, show_page_head: bool = True, navigat
 
     def toggle_sidebar() -> None:
         _NAV_STATE["sidebar_expanded"] = not bool(_NAV_STATE["sidebar_expanded"])
-        navigate(active_path)
+        navigate(active_path, close_mobile=False)
+
+    def close_mobile_sidebar() -> None:
+        if not bool(_NAV_STATE["sidebar_mobile_open"]):
+            return
+        _NAV_STATE["sidebar_mobile_open"] = False
+        navigate(active_path, close_mobile=False)
+
+    def toggle_mobile_sidebar() -> None:
+        _NAV_STATE["sidebar_mobile_open"] = not bool(_NAV_STATE["sidebar_mobile_open"])
+        navigate(active_path, close_mobile=False)
 
     def toggle_group(group_key: str) -> None:
         next_open_groups = dict(_NAV_STATE.get("open_groups") or {})
@@ -578,11 +691,11 @@ def _shell(active_path: str, title: str, *, show_page_head: bool = True, navigat
             if first_path:
                 navigate(first_path)
             else:
-                navigate(active_path)
+                navigate(active_path, close_mobile=False)
             return
         next_open_groups[group_key] = False
         _NAV_STATE["open_groups"] = next_open_groups
-        navigate(active_path)
+        navigate(active_path, close_mobile=False)
 
     def nav_item(path: str, label: str, icon: str, *, nested: bool = False) -> None:
         active = active_path == path
@@ -621,6 +734,10 @@ def _shell(active_path: str, title: str, *, show_page_head: bool = True, navigat
         with ui.row().classes("bm-global-header w-full items-center"):
             with ui.row().classes("bm-global-header-inner w-full items-center justify-between"):
                 with ui.row().classes("items-center gap-2"):
+                    ui.button(
+                        icon="menu" if not is_mobile_sidebar_open else "close",
+                        on_click=toggle_mobile_sidebar,
+                    ).props("flat round dense").classes("bm-global-icon-btn bm-mobile-nav-btn")
                     with ui.element("div").classes("bm-global-brand-badge"):
                         ui.image("/assets/hamster-logo.png").classes("bm-global-brand-logo")
                     ui.label("Atelier Buddy").classes("bm-global-brand")
@@ -646,10 +763,17 @@ def _shell(active_path: str, title: str, *, show_page_head: bool = True, navigat
                         on_click=lambda: navigate("/logout"),
                     ).props("flat round dense").classes("bm-global-icon-btn")
 
+        backdrop_classes = "bm-sidebar-backdrop"
+        if is_mobile_sidebar_open:
+            backdrop_classes += " bm-sidebar-backdrop--open"
+        ui.element("div").classes(backdrop_classes).on("click", lambda _: close_mobile_sidebar())
+
         with ui.row().classes("bm-app-shell w-full"):
             sidebar_classes = "bm-sidebar"
             if not is_expanded:
                 sidebar_classes += " bm-sidebar--mini"
+            if is_mobile_sidebar_open:
+                sidebar_classes += " bm-sidebar--mobile-open"
 
             with ui.column().classes(sidebar_classes):
                 with ui.row().classes("bm-sidebar-header w-full items-center justify-center"):
@@ -805,64 +929,64 @@ def register_pages(services: ServiceContainer) -> None:
             else DEFAULT_CONTACT_COUNTRY_CODE
         )
 
-        with ui.row().classes("w-full gap-3 wrap"):
+        with ui.row().classes("w-full gap-3 wrap bm-form-row"):
             fields["given_name"] = ui.input(
                 "Vorname",
                 value="" if current_contact is None else (current_contact.given_name or ""),
-            ).classes("flex-1 min-w-[220px]")
+            ).classes("flex-1 min-w-[220px] bm-form-field")
             fields["family_name"] = ui.input(
                 "Nachname",
                 value="" if current_contact is None else (current_contact.family_name or ""),
-            ).classes("flex-1 min-w-[220px]")
+            ).classes("flex-1 min-w-[220px] bm-form-field")
 
-        with ui.row().classes("w-full gap-3 wrap"):
+        with ui.row().classes("w-full gap-3 wrap bm-form-row"):
             fields["organisation"] = ui.input(
                 "Organisation",
                 value="" if current_contact is None else (current_contact.organisation or ""),
-            ).classes("flex-1 min-w-[220px]")
+            ).classes("flex-1 min-w-[220px] bm-form-field")
             if include_category:
                 fields["contact_category_id"] = ui.select(
                     category_options_map or {},
                     value=selected_category_id,
                     label="Kategorie",
-                ).classes("flex-1 min-w-[220px]")
+                ).classes("flex-1 min-w-[220px] bm-form-field")
             else:
                 fields["email"] = ui.input(
                     "E-Mail",
                     value="" if current_contact is None else (current_contact.email or ""),
-                ).classes("flex-1 min-w-[220px]")
+                ).classes("flex-1 min-w-[220px] bm-form-field")
 
         if include_extended_fields:
             with ui.card().classes("bm-card p-4 w-full gap-3"):
                 ui.label("Adresse").classes("text-base font-semibold")
-                with ui.row().classes("w-full gap-3 wrap"):
+                with ui.row().classes("w-full gap-3 wrap bm-form-row"):
                     fields["street"] = ui.input(
                         "Straße",
                         value="" if current_contact is None else (current_contact.street or ""),
-                    ).classes("flex-1 min-w-[240px]")
+                    ).classes("flex-1 min-w-[240px] bm-form-field")
                     fields["house_number"] = ui.input(
                         "Hausnummer",
                         value="" if current_contact is None else (current_contact.house_number or ""),
-                    ).classes("w-36")
-                with ui.row().classes("w-full gap-3 wrap"):
+                    ).classes("w-36 bm-form-field")
+                with ui.row().classes("w-full gap-3 wrap bm-form-row"):
                     fields["address_extra"] = ui.input(
                         "Adresszusatz",
                         value="" if current_contact is None else (current_contact.address_extra or ""),
-                    ).classes("w-full")
-                with ui.row().classes("w-full gap-3 wrap"):
+                    ).classes("w-full bm-form-field")
+                with ui.row().classes("w-full gap-3 wrap bm-form-row"):
                     fields["postal_code"] = ui.input(
                         "PLZ",
                         value="" if current_contact is None else (current_contact.postal_code or ""),
-                    ).classes("w-40")
+                    ).classes("w-40 bm-form-field")
                     fields["city"] = ui.input(
                         "Ort",
                         value="" if current_contact is None else (current_contact.city or ""),
-                    ).classes("flex-1 min-w-[220px]")
+                    ).classes("flex-1 min-w-[220px] bm-form-field")
                 fields["country"] = ui.select(
                     country_options(),
                     value=selected_country,
                     label="Land",
-                ).props("use-input input-debounce=0").classes("w-full")
+                ).props("use-input input-debounce=0").classes("w-full bm-form-field")
         else:
             fields["street"] = None
             fields["house_number"] = None
@@ -874,24 +998,24 @@ def register_pages(services: ServiceContainer) -> None:
         if include_category:
             with ui.card().classes("bm-card p-4 w-full gap-3"):
                 ui.label("Kontakt").classes("text-base font-semibold")
-                with ui.row().classes("w-full gap-3 wrap"):
+                with ui.row().classes("w-full gap-3 wrap bm-form-row"):
                     fields["email"] = ui.input(
                         "E-Mail",
                         value="" if current_contact is None else (current_contact.email or ""),
-                    ).classes("flex-1 min-w-[220px]")
+                    ).classes("flex-1 min-w-[220px] bm-form-field")
                     fields["phone"] = ui.input(
                         "Telefon",
                         value="" if current_contact is None else (current_contact.phone or ""),
-                    ).classes("flex-1 min-w-[220px]")
-                with ui.row().classes("w-full gap-3 wrap"):
+                    ).classes("flex-1 min-w-[220px] bm-form-field")
+                with ui.row().classes("w-full gap-3 wrap bm-form-row"):
                     fields["mobile"] = ui.input(
                         "Mobil",
                         value="" if current_contact is None else (current_contact.mobile or ""),
-                    ).classes("flex-1 min-w-[220px]")
+                    ).classes("flex-1 min-w-[220px] bm-form-field")
                     fields["primary_link"] = ui.input(
                         "Link",
                         value="" if current_contact is None else (current_contact.primary_link or ""),
-                    ).classes("flex-1 min-w-[220px]")
+                    ).classes("flex-1 min-w-[220px] bm-form-field")
         else:
             fields["phone"] = None
             fields["mobile"] = None
@@ -901,7 +1025,7 @@ def register_pages(services: ServiceContainer) -> None:
             fields["notes"] = ui.textarea(
                 "Notiz",
                 value="" if current_contact is None else (current_contact.notes or ""),
-            ).classes("w-full bm-order-notes")
+            ).classes("w-full bm-order-notes bm-form-field")
         else:
             fields["notes"] = None
 
@@ -1217,15 +1341,15 @@ def register_pages(services: ServiceContainer) -> None:
                 search_task: asyncio.Task | None = None
                 is_refreshing_filters = False
 
-                with ui.row().classes("w-full items-center justify-between"):
-                    with ui.row().classes("gap-2"):
+                with ui.row().classes("w-full items-center justify-between gap-3 wrap"):
+                    with ui.row().classes("gap-2 wrap"):
                         active_view_button = ui.button("Belege").props("unelevated no-caps").classes(
                             "bm-view-mode-btn bm-segment-btn"
                         )
                         deleted_view_button = ui.button("Gelöschte Belege").props("unelevated no-caps").classes(
                             "bm-view-mode-btn bm-segment-btn"
                         )
-                    with ui.row().classes("gap-2"):
+                    with ui.row().classes("gap-2 wrap"):
                         filter_toggle_button = ui.button(
                             "Filter",
                             icon="filter_alt",
@@ -1454,6 +1578,17 @@ def register_pages(services: ServiceContainer) -> None:
                                     "gross": _format_cents(receipt.amount_gross_cents, settings.default_currency),
                                     "completeness": completeness,
                                     "completeness_hint": ", ".join(missing_fields),
+                                    "mobile_title": receipt.supplier.name if receipt.supplier else "Unbekannter Anbieter",
+                                    "mobile_primary_left": f"Belegdatum {receipt.doc_date.isoformat()}" if receipt.doc_date else "Belegdatum -",
+                                    "mobile_primary_right": _format_cents(receipt.amount_gross_cents, settings.default_currency),
+                                    "mobile_secondary": (
+                                        f"Fehlt: {', '.join(missing_fields)}" if missing_fields else "Pflichtangaben vollständig"
+                                    ),
+                                    "mobile_badge": completeness,
+                                    "mobile_badge_color": "positive" if not missing_fields else "warning",
+                                    "mobile_badge_tooltip": (
+                                        f"Fehlt: {', '.join(missing_fields)}" if missing_fields else ""
+                                    ),
                                     "deleted": bool(receipt.deleted_at),
                                 }
                             )
@@ -1465,7 +1600,37 @@ def register_pages(services: ServiceContainer) -> None:
                             {"name": "completeness", "label": "Vollständigkeit", "field": "completeness", "align": "left"},
                             {"name": "actions", "label": "Aktionen", "field": "actions", "align": "right"},
                         ]
-                        table = _erp_table(columns=columns, rows=rows, row_key="id", rows_per_page=25)
+                        actions_menu = """
+                        <q-btn flat round dense icon="more_vert" @click.stop>
+                          <q-menu auto-close>
+                            <q-list dense style="min-width: 220px">
+                              <q-item clickable @click="$parent.$emit('detail_action', props.row)">
+                                <q-item-section avatar><q-icon name="visibility" /></q-item-section>
+                                <q-item-section><q-item-label>Details anzeigen</q-item-label></q-item-section>
+                              </q-item>
+                              <q-item v-if="!props.row.deleted" clickable @click="$parent.$emit('delete_action', props.row)">
+                                <q-item-section avatar><q-icon name="delete_outline" color="negative" /></q-item-section>
+                                <q-item-section><q-item-label>In Gelöschte Belege</q-item-label></q-item-section>
+                              </q-item>
+                              <q-item v-if="props.row.deleted" clickable @click="$parent.$emit('restore_action', props.row)">
+                                <q-item-section avatar><q-icon name="restore_from_trash" /></q-item-section>
+                                <q-item-section><q-item-label>Wiederherstellen</q-item-label></q-item-section>
+                              </q-item>
+                              <q-item v-if="props.row.deleted" clickable @click="$parent.$emit('hard_delete_action', props.row)">
+                                <q-item-section avatar><q-icon name="delete_forever" color="negative" /></q-item-section>
+                                <q-item-section><q-item-label>Endgültig löschen</q-item-label></q-item-section>
+                              </q-item>
+                            </q-list>
+                          </q-menu>
+                        </q-btn>
+                        """
+                        table = _responsive_erp_table(
+                            columns=columns,
+                            rows=rows,
+                            row_key="id",
+                            rows_per_page=25,
+                            mobile_actions_slot=actions_menu,
+                        )
 
                         table.add_slot(
                             "body-cell-completeness",
@@ -1482,30 +1647,9 @@ def register_pages(services: ServiceContainer) -> None:
                         )
                         table.add_slot(
                             "body-cell-actions",
-                            """
+                            f"""
                             <q-td :props="props" class="text-right">
-                              <q-btn flat round dense icon="more_vert" @click.stop>
-                                <q-menu auto-close>
-                                  <q-list dense style="min-width: 220px">
-                                    <q-item clickable @click="$parent.$emit('detail_action', props.row)">
-                                      <q-item-section avatar><q-icon name="visibility" /></q-item-section>
-                                      <q-item-section><q-item-label>Details anzeigen</q-item-label></q-item-section>
-                                    </q-item>
-                                    <q-item v-if="!props.row.deleted" clickable @click="$parent.$emit('delete_action', props.row)">
-                                      <q-item-section avatar><q-icon name="delete_outline" color="negative" /></q-item-section>
-                                      <q-item-section><q-item-label>In Gelöschte Belege</q-item-label></q-item-section>
-                                    </q-item>
-                                    <q-item v-if="props.row.deleted" clickable @click="$parent.$emit('restore_action', props.row)">
-                                      <q-item-section avatar><q-icon name="restore_from_trash" /></q-item-section>
-                                      <q-item-section><q-item-label>Wiederherstellen</q-item-label></q-item-section>
-                                    </q-item>
-                                    <q-item v-if="props.row.deleted" clickable @click="$parent.$emit('hard_delete_action', props.row)">
-                                      <q-item-section avatar><q-icon name="delete_forever" color="negative" /></q-item-section>
-                                      <q-item-section><q-item-label>Endgültig löschen</q-item-label></q-item-section>
-                                    </q-item>
-                                  </q-list>
-                                </q-menu>
-                              </q-btn>
+                              {actions_menu}
                             </q-td>
                             """,
                         )
@@ -1931,11 +2075,11 @@ def register_pages(services: ServiceContainer) -> None:
                             if receipt.document_type in {DOC_TYPE_INVOICE, DOC_TYPE_CREDIT_NOTE}
                             else DOC_TYPE_INVOICE
                         )
-                        with ui.row().classes("w-full items-center"):
+                        with ui.row().classes("w-full items-center bm-form-row"):
                             document_type_input = ui.toggle(
                                 {DOC_TYPE_INVOICE: "Rechnung", DOC_TYPE_CREDIT_NOTE: "Gutschrift"},
                                 value=document_type_value,
-                            ).props("unelevated no-caps").classes("bm-view-mode-btn bm-doc-type-toggle")
+                            ).props("unelevated no-caps").classes("bm-view-mode-btn bm-doc-type-toggle bm-form-field")
 
                         gross_default = ""
                         if receipt.amount_gross_cents is not None:
@@ -1949,21 +2093,21 @@ def register_pages(services: ServiceContainer) -> None:
                             else str(settings.default_vat_rate_percent).replace(".", ",")
                         )
 
-                        with ui.row().classes("w-full gap-2 items-end wrap"):
+                        with ui.row().classes("w-full gap-2 items-end wrap bm-form-row"):
                             gross_input = ui.input(
                                 f"Brutto ({settings.default_currency})",
                                 value=gross_default,
-                            ).props("input-debounce=0").classes("min-w-0 flex-1")
+                            ).props("input-debounce=0").classes("min-w-0 flex-1 bm-form-field")
                             vat_input = ui.input("USt-Satz (%)", value=vat_default).props("input-debounce=0").classes(
-                                "w-36"
+                                "w-36 bm-form-field"
                             )
                             net_input = ui.input(
                                 f"Netto ({settings.default_currency})",
                                 value=_format_cents(receipt.amount_net_cents, settings.default_currency),
-                            ).props("readonly").classes("min-w-0 flex-1")
+                            ).props("readonly").classes("min-w-0 flex-1 bm-form-field")
                         notes_input = ui.textarea("Notizen (optional)", value=receipt.notes or "").props(
                             'clearable rows=3 input-style="min-height: 5.5rem; resize: vertical;"'
-                        ).classes("w-full")
+                        ).classes("w-full bm-form-field")
 
                         cost_type_select_options = {item.id: item.name for item in cost_types if item.id is not None}
                         project_map = project_options(active_only=True, include_ids=selected_project_ids)
@@ -2710,15 +2854,15 @@ def register_pages(services: ServiceContainer) -> None:
                 filters_visible = False
                 search_task: asyncio.Task | None = None
 
-                with ui.row().classes("w-full items-center justify-between"):
-                    with ui.row().classes("gap-2"):
+                with ui.row().classes("w-full items-center justify-between gap-3 wrap"):
+                    with ui.row().classes("gap-2 wrap"):
                         active_view_button = ui.button("Verkäufe").props("unelevated no-caps").classes(
                             "bm-view-mode-btn bm-segment-btn"
                         )
                         deleted_view_button = ui.button("Gelöschte Verkäufe").props("unelevated no-caps").classes(
                             "bm-view-mode-btn bm-segment-btn"
                         )
-                    with ui.row().classes("gap-2"):
+                    with ui.row().classes("gap-2 wrap"):
                         filter_toggle_button = ui.button("Filter", icon="filter_alt").props("flat no-caps").classes(
                             "bm-filter-btn"
                         )
@@ -3042,6 +3186,19 @@ def register_pages(services: ServiceContainer) -> None:
                                         "invoiced": "positive",
                                     }[status_key],
                                     "total": _format_cents(order_total_cents(order.items), settings.default_currency),
+                                    "mobile_title": order.internal_number,
+                                    "mobile_title_note": (
+                                        f"Rechnungsnummer {order.invoice_number}" if (order.invoice_number or "").strip() else ""
+                                    ),
+                                    "mobile_primary_left": f"Verkaufsdatum {order.sale_date.isoformat()}",
+                                    "mobile_primary_right": _format_cents(order_total_cents(order.items), settings.default_currency),
+                                    "mobile_secondary": _contact_display_name(order.contact) if order.contact else "Kein Kontakt hinterlegt",
+                                    "mobile_badge": order_status_label(order),
+                                    "mobile_badge_color": {
+                                        "draft": "grey-6",
+                                        "document_missing": "warning",
+                                        "invoiced": "positive",
+                                    }[status_key],
                                     "deleted": bool(order.deleted_at),
                                     "locked": locked,
                                 }
@@ -3063,7 +3220,37 @@ def register_pages(services: ServiceContainer) -> None:
                             {"name": "total", "label": f"Gesamt ({settings.default_currency})", "field": "total", "align": "right"},
                             {"name": "actions", "label": "Aktionen", "field": "actions", "align": "right"},
                         ]
-                        table = _erp_table(columns=columns, rows=rows, row_key="id", rows_per_page=25)
+                        actions_menu = """
+                        <q-btn flat round dense icon="more_vert" @click.stop>
+                          <q-menu auto-close>
+                            <q-list dense style="min-width: 220px">
+                              <q-item clickable @click="$parent.$emit('detail_action', props.row)">
+                                <q-item-section avatar><q-icon name="visibility" /></q-item-section>
+                                <q-item-section><q-item-label>Details anzeigen</q-item-label></q-item-section>
+                              </q-item>
+                              <q-item v-if="!props.row.deleted && !props.row.locked" clickable @click="$parent.$emit('delete_action', props.row)">
+                                <q-item-section avatar><q-icon name="delete_outline" color="negative" /></q-item-section>
+                                <q-item-section><q-item-label>In Gelöschte Verkäufe</q-item-label></q-item-section>
+                              </q-item>
+                              <q-item v-if="props.row.deleted" clickable @click="$parent.$emit('restore_action', props.row)">
+                                <q-item-section avatar><q-icon name="restore_from_trash" /></q-item-section>
+                                <q-item-section><q-item-label>Wiederherstellen</q-item-label></q-item-section>
+                              </q-item>
+                              <q-item v-if="props.row.deleted" clickable @click="$parent.$emit('hard_delete_action', props.row)">
+                                <q-item-section avatar><q-icon name="delete_forever" color="negative" /></q-item-section>
+                                <q-item-section><q-item-label>Endgültig löschen</q-item-label></q-item-section>
+                              </q-item>
+                            </q-list>
+                          </q-menu>
+                        </q-btn>
+                        """
+                        table = _responsive_erp_table(
+                            columns=columns,
+                            rows=rows,
+                            row_key="id",
+                            rows_per_page=25,
+                            mobile_actions_slot=actions_menu,
+                        )
                         table.add_slot(
                             "body-cell-status",
                             """
@@ -3076,30 +3263,9 @@ def register_pages(services: ServiceContainer) -> None:
                         )
                         table.add_slot(
                             "body-cell-actions",
-                            """
+                            f"""
                             <q-td :props="props" class="text-right">
-                              <q-btn flat round dense icon="more_vert" @click.stop>
-                                <q-menu auto-close>
-                                  <q-list dense style="min-width: 220px">
-                                    <q-item clickable @click="$parent.$emit('detail_action', props.row)">
-                                      <q-item-section avatar><q-icon name="visibility" /></q-item-section>
-                                      <q-item-section><q-item-label>Details anzeigen</q-item-label></q-item-section>
-                                    </q-item>
-                                    <q-item v-if="!props.row.deleted && !props.row.locked" clickable @click="$parent.$emit('delete_action', props.row)">
-                                      <q-item-section avatar><q-icon name="delete_outline" color="negative" /></q-item-section>
-                                      <q-item-section><q-item-label>In Gelöschte Verkäufe</q-item-label></q-item-section>
-                                    </q-item>
-                                    <q-item v-if="props.row.deleted" clickable @click="$parent.$emit('restore_action', props.row)">
-                                      <q-item-section avatar><q-icon name="restore_from_trash" /></q-item-section>
-                                      <q-item-section><q-item-label>Wiederherstellen</q-item-label></q-item-section>
-                                    </q-item>
-                                    <q-item v-if="props.row.deleted" clickable @click="$parent.$emit('hard_delete_action', props.row)">
-                                      <q-item-section avatar><q-icon name="delete_forever" color="negative" /></q-item-section>
-                                      <q-item-section><q-item-label>Endgültig löschen</q-item-label></q-item-section>
-                                    </q-item>
-                                  </q-list>
-                                </q-menu>
-                              </q-btn>
+                              {actions_menu}
                             </q-td>
                             """,
                         )
@@ -3364,11 +3530,11 @@ def register_pages(services: ServiceContainer) -> None:
 
                 ui.label(f"Verkauf {order.internal_number}").classes("text-xl font-semibold")
 
-                with ui.row().classes("w-full gap-3 wrap items-end"):
-                    with ui.row().classes("min-w-[260px] flex-[1_1_320px] gap-3 items-center"):
+                with ui.row().classes("w-full gap-3 wrap items-end bm-form-row"):
+                    with ui.row().classes("min-w-[260px] flex-[1_1_320px] gap-3 items-center bm-form-row"):
                         contact_input = ui.select(contact_map, value=order.contact_id, label="Kontakt").props(
                             "use-input input-debounce=0"
-                        ).classes("min-w-0 flex-1")
+                        ).classes("min-w-0 flex-1 bm-form-field")
                         contact_add_btn = ui.button(
                             icon="add",
                             on_click=open_quick_contact_dialog,
@@ -3376,54 +3542,54 @@ def register_pages(services: ServiceContainer) -> None:
                         contact_add_btn.tooltip("Neuen Kontakt anlegen")
                     internal_number_input = ui.input("Interne Verkaufsnummer", value=order.internal_number).props(
                         "readonly"
-                    ).classes("min-w-[190px] flex-1")
+                    ).classes("min-w-[190px] flex-1 bm-form-field")
                     sale_date_input = ui.input("Verkaufsdatum", value=order.sale_date.isoformat()).props("type=date").classes(
-                        "w-44"
+                        "w-44 bm-form-field"
                     )
                     status_preview = ui.input("Status", value=order_status_label(order)).props("readonly").classes(
-                        "w-40"
+                        "w-40 bm-form-field"
                     )
 
-                with ui.row().classes("w-full gap-4 items-start wrap"):
-                    with ui.column().classes("min-w-[320px] flex-[1_1_520px] gap-3"):
+                with ui.row().classes("w-full gap-4 items-start wrap bm-form-row"):
+                    with ui.column().classes("min-w-[320px] flex-[1_1_520px] gap-3 bm-responsive-panel"):
                         notes_input = ui.textarea("Notiz", value=order.notes or "").props("rows=4").classes(
-                            "w-full bm-order-notes"
+                            "w-full bm-order-notes bm-form-field"
                         )
-                        with ui.row().classes("w-full gap-3 wrap items-center"):
-                            head_project_container = ui.row().classes("min-w-[260px] flex-1")
+                        with ui.row().classes("w-full gap-3 wrap items-center bm-form-row"):
+                            head_project_container = ui.row().classes("min-w-[260px] flex-1 bm-form-row")
                             with head_project_container:
                                 head_project_input = ui.select(
                                     project_map,
                                     value=None,
                                     label="Projekt für alle Positionen",
                                     clearable=True,
-                                ).classes("w-full")
+                                ).classes("w-full bm-form-field")
                             with ui.row().classes("items-center"):
                                 project_mode_input = ui.switch("Projekt je Position", value=project_mode_enabled).classes(
                                     "bm-inline-switch bm-order-project-toggle"
                                 )
                                 project_mode_input.props("color=primary")
 
-                    with ui.card().classes("bm-invoice-section bm-card p-4 min-w-[320px] flex-[1_1_360px] gap-3"):
+                    with ui.card().classes("bm-invoice-section bm-card p-4 min-w-[320px] flex-[1_1_360px] gap-3 bm-responsive-panel"):
                         with ui.row().classes("w-full items-center justify-between gap-2"):
                             ui.label("Rechnung").classes("text-base font-semibold")
                             document_actions_container = ui.row().classes("items-center gap-1")
 
-                        with ui.row().classes("w-full gap-3 wrap items-end"):
+                        with ui.row().classes("w-full gap-3 wrap items-end bm-form-row"):
                             invoice_date_input = ui.input(
                                 "Rechnungsdatum",
                                 value=order.invoice_date.isoformat() if order.invoice_date else "",
-                            ).props("type=date clearable").classes("w-44")
+                            ).props("type=date clearable").classes("w-44 bm-form-field")
                             invoice_number_input = ui.input(
                                 "Rechnungsnummer",
                                 value=order.invoice_number or "",
-                            ).classes("min-w-[180px] flex-1")
+                            ).classes("min-w-[180px] flex-1 bm-form-field")
                         document_hint_label = ui.label("").classes("text-xs text-slate-600")
 
                 item_editor = ui.column().classes("w-full gap-2")
-                with ui.row().classes("w-full items-end justify-between gap-3 wrap"):
+                with ui.row().classes("w-full items-end justify-between gap-3 wrap bm-form-row"):
                     ui.label("Alle Preise ohne Umsatzsteuer eingeben (§19 UStG).").classes("text-xs text-slate-600")
-                    total_preview = ui.input("Gesamtsumme", value="-").props("readonly").classes("w-48")
+                    total_preview = ui.input("Gesamtsumme", value="-").props("readonly").classes("w-48 bm-form-field")
 
                 def render_invoice_document_controls() -> None:
                     invoice_document_url = current_invoice_document_url()
@@ -3519,25 +3685,25 @@ def register_pages(services: ServiceContainer) -> None:
 
                 def render_item_row(row: dict[str, Any]) -> None:
                     with ui.card().classes("bm-card p-3 w-full"):
-                        with ui.row().classes("w-full items-end gap-3 wrap"):
+                        with ui.row().classes("w-full items-end gap-3 wrap bm-form-row"):
                             description_input = ui.input("Bezeichnung", value=row.get("description") or "").classes(
-                                "min-w-[280px] grow"
+                                "min-w-[280px] grow bm-form-field"
                             )
-                            quantity_input = ui.input("Menge", value=row.get("quantity_text") or "").classes("w-28")
+                            quantity_input = ui.input("Menge", value=row.get("quantity_text") or "").classes("w-28 bm-form-field")
                             unit_price_input = ui.input(
                                 f"Einzelpreis ({settings.default_currency})",
                                 value=row.get("unit_price_text") or "",
-                            ).classes("w-40")
+                            ).classes("w-40 bm-form-field")
                             total_label = ui.input(
                                 "Gesamt",
                                 value="-",
-                            ).props("readonly").classes("w-40")
+                            ).props("readonly").classes("w-40 bm-form-field")
                             project_input = ui.select(
                                 project_map,
                                 value=row.get("project_id"),
                                 label="Projekt",
                                 clearable=True,
-                            ).classes("min-w-[220px] grow")
+                            ).classes("min-w-[220px] grow bm-form-field")
                             remove_button = ui.button(
                                 icon="delete_outline",
                                 on_click=lambda current=row: remove_row(current),
@@ -3951,11 +4117,6 @@ def register_pages(services: ServiceContainer) -> None:
                     with ui.column().classes("bm-detail-preview gap-3"):
                         if cover_url:
                             ui.image(cover_url).classes("w-full max-h-[72vh] object-contain rounded-xl bg-white")
-                        else:
-                            with ui.element("div").classes(
-                                "w-full h-[320px] rounded-xl bg-slate-100 flex items-center justify-center"
-                            ):
-                                ui.icon("image", size="56px")
                         ui.label("Cover-Bilder werden als optimiertes WebP gespeichert.").classes("text-xs text-slate-600")
 
                         async def handle_cover_upload(event: events.MultiUploadEventArguments) -> None:
@@ -4299,25 +4460,43 @@ def register_pages(services: ServiceContainer) -> None:
                             {"name": "reachability", "label": "Kontaktweg", "field": "reachability", "align": "left"},
                             {"name": "actions", "label": "Aktionen", "field": "actions", "align": "right"},
                         ]
-                        table = _erp_table(columns=columns, rows=rows, row_key="id", rows_per_page=20)
+                        actions_menu = """
+                        <q-btn flat round dense icon="more_vert" @click.stop>
+                          <q-menu auto-close>
+                            <q-list dense style="min-width: 220px">
+                              <q-item clickable @click="$parent.$emit('edit_action', props.row)">
+                                <q-item-section avatar><q-icon name="edit" /></q-item-section>
+                                <q-item-section><q-item-label>Bearbeiten</q-item-label></q-item-section>
+                              </q-item>
+                              <q-item clickable @click="$parent.$emit('delete_action', props.row)">
+                                <q-item-section avatar><q-icon name="delete" color="negative" /></q-item-section>
+                                <q-item-section><q-item-label>Kontakt löschen</q-item-label></q-item-section>
+                              </q-item>
+                            </q-list>
+                          </q-menu>
+                        </q-btn>
+                        """
+                        for row in rows:
+                            organisation = row.get("organisation") or "-"
+                            reachability = row.get("reachability") or "-"
+                            row["mobile_title"] = row.get("name") or "-"
+                            row["mobile_title_note"] = organisation if organisation != "-" else ""
+                            row["mobile_primary_left"] = row.get("category") or "-"
+                            row["mobile_primary_right"] = row.get("location") or "-"
+                            row["mobile_secondary"] = reachability if reachability != "-" else organisation
+
+                        table = _responsive_erp_table(
+                            columns=columns,
+                            rows=rows,
+                            row_key="id",
+                            rows_per_page=20,
+                            mobile_actions_slot=actions_menu,
+                        )
                         table.add_slot(
                             "body-cell-actions",
-                            """
+                            f"""
                             <q-td :props="props" class="text-right">
-                              <q-btn flat round dense icon="more_vert" @click.stop>
-                                <q-menu auto-close>
-                                  <q-list dense style="min-width: 220px">
-                                    <q-item clickable @click="$parent.$emit('edit_action', props.row)">
-                                      <q-item-section avatar><q-icon name="edit" /></q-item-section>
-                                      <q-item-section><q-item-label>Bearbeiten</q-item-label></q-item-section>
-                                    </q-item>
-                                    <q-item clickable @click="$parent.$emit('delete_action', props.row)">
-                                      <q-item-section avatar><q-icon name="delete" color="negative" /></q-item-section>
-                                      <q-item-section><q-item-label>Kontakt löschen</q-item-label></q-item-section>
-                                    </q-item>
-                                  </q-list>
-                                </q-menu>
-                              </q-btn>
+                              {actions_menu}
                             </q-td>
                             """,
                         )
