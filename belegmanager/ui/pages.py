@@ -715,6 +715,7 @@ def _shell(
 
     is_expanded = bool(_NAV_STATE["sidebar_expanded"])
     is_mobile_sidebar_open = bool(_NAV_STATE["sidebar_mobile_open"])
+    is_effectively_expanded = is_expanded or is_mobile_sidebar_open
 
     def group_active(group: dict[str, Any]) -> bool:
         return any(active_path == item.get("path") for item in group.get("items", []))
@@ -770,18 +771,18 @@ def _shell(
 
     def nav_item(path: str, label: str, icon: str, *, nested: bool = False) -> None:
         active = active_path == path
-        button_label = label if is_expanded else ""
+        button_label = label if is_effectively_expanded else ""
         classes = "bm-nav-item w-full"
         if active:
             classes += " bm-nav-item--active"
-        if nested and is_expanded:
+        if nested and is_effectively_expanded:
             classes += " bm-nav-item--nested"
-        if nested and not is_expanded:
+        if nested and not is_effectively_expanded:
             classes += " bm-nav-item--nested-mini"
-        if not is_expanded:
+        if not is_effectively_expanded:
             classes += " bm-nav-item--mini"
         button_props = "flat no-caps align=left"
-        if not is_expanded:
+        if not is_effectively_expanded:
             button_props = "flat no-caps"
         ui.button(
             button_label,
@@ -841,7 +842,7 @@ def _shell(
 
         with ui.row().classes("bm-app-shell w-full"):
             sidebar_classes = "bm-sidebar"
-            if not is_expanded:
+            if not is_effectively_expanded:
                 sidebar_classes += " bm-sidebar--mini"
             if is_mobile_sidebar_open:
                 sidebar_classes += " bm-sidebar--mobile-open"
@@ -867,7 +868,7 @@ def _shell(
                         continue
                     is_group_open = bool((_NAV_STATE.get("open_groups") or {}).get(group_key))
                     is_group_active = group_active(entry)
-                    if is_expanded:
+                    if is_effectively_expanded:
                         group_classes = "bm-nav-item bm-nav-group-trigger w-full"
                         if is_group_active:
                             group_classes += " bm-nav-item--active"
