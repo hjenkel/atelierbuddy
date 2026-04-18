@@ -1,6 +1,6 @@
 # Architekturentscheidungen
 
-Version-Single-Source: `pyproject.toml` (`0.3.1`)
+Version-Single-Source: `pyproject.toml` (`0.3.2`)
 
 ## 1. Lokal-first und self-hosted
 Entscheidung:

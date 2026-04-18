@@ -483,6 +483,15 @@ def _base_html(title: str, body: str) -> str:
 """
 
 
+def _submit_on_enter_form_attrs(form_id: str) -> str:
+    safe_form_id = html.escape(form_id, quote=True)
+    return (
+        f'id="{safe_form_id}" '
+        "onkeydown=\"if (event.key === 'Enter' && event.target instanceof HTMLElement "
+        "&& event.target.tagName !== 'TEXTAREA') { event.preventDefault(); this.requestSubmit(); }\""
+    )
+
+
 def _login_html(*, next_path: str, error_message: str | None) -> str:
     safe_error = f'<div class="error">{html.escape(error_message)}</div>' if error_message else ""
     safe_next = html.escape(next_path, quote=True)
@@ -491,7 +500,7 @@ def _login_html(*, next_path: str, error_message: str | None) -> str:
   <h1>Anmeldung</h1>
   <p>Bitte mit deinem Atelier-Buddy-Konto anmelden.</p>
   {safe_error}
-  <form method="post" action="/login">
+  <form {_submit_on_enter_form_attrs("login-form")} method="post" action="/login">
     <input type="hidden" name="next" value="{safe_next}" />
     <label for="username">Benutzername</label>
     <input id="username" name="username" type="text" autocomplete="username" required />
@@ -511,7 +520,7 @@ def _setup_html(*, error_message: str | None) -> str:
   <h1>Ersteinrichtung</h1>
   <p>Lege den ersten Admin-Zugang an. Danach ist die Ersteinrichtung geschlossen und die Anmeldung läuft normal über den Login.</p>
   {safe_error}
-  <form method="post" action="/setup">
+  <form {_submit_on_enter_form_attrs("setup-form")} method="post" action="/setup">
     <label for="username">Benutzername</label>
     <input id="username" name="username" type="text" autocomplete="username" required />
     <label for="password">Passwort</label>

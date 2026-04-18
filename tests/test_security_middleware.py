@@ -12,7 +12,7 @@ from starlette.testclient import WebSocketDisconnect
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from belegmanager.models import AppUser
-from belegmanager.security import AuthRequiredMiddleware, OriginValidationMiddleware
+from belegmanager.security import AuthRequiredMiddleware, OriginValidationMiddleware, _login_html, _setup_html
 import belegmanager.security as security_module
 from belegmanager.services.auth_service import AuthService
 
@@ -219,3 +219,15 @@ def test_trusted_host_middleware_rejects_unexpected_host() -> None:
     client = TestClient(app, base_url="http://evil.example")
     response = client.get("/ping", follow_redirects=False)
     assert response.status_code == 400
+
+
+def test_login_and_setup_forms_submit_on_enter() -> None:
+    login_html = _login_html(next_path="/belege", error_message=None)
+    setup_html = _setup_html(error_message=None)
+
+    assert 'id="login-form"' in login_html
+    assert 'id="setup-form"' in setup_html
+    assert "event.key === 'Enter'" in login_html
+    assert "this.requestSubmit()" in login_html
+    assert "event.key === 'Enter'" in setup_html
+    assert "this.requestSubmit()" in setup_html
