@@ -2,12 +2,10 @@
 
 Lokale Web-App für Belegverwaltung, Ausgangsrechnungen und betriebliche Auswertungen in kreativen Arbeitskontexten.
 
-Aktuelle Version: `0.2.3` (pre-alpha)
+Aktuelle Version: `0.2.4` (pre-alpha)
 
 ## Was ist Atelier Buddy?
 Atelier Buddy richtet sich an Künstler:innen, Bands und andere Solo- oder Kleinstteams, die Belege, Kontakte, Projekte und Verkäufe an einem Ort pflegen möchten, ohne in klassische ERP- oder Steuerkanzlei-Software zu wechseln.
-
-Die App ist heute mehr als ein "einfacher Belegsammler": Sie verbindet Dokumentarchiv, OCR, fachliche Zuordnung, Ausgangsrechnungslogik, Stammdatenpflege und projektbezogene Auswertung in einer lokalen Anwendung.
 
 ## Was kann Atelier Buddy?
 - Kontakte pflegen. Mögliche Kudnen, Partner, Presse und Co. 
@@ -30,6 +28,7 @@ Die App ist heute mehr als ein "einfacher Belegsammler": Sie verbindet Dokumenta
 - Einnahmenauswertung mit Projektdrilldown
 - Soft-Delete für Belege und Verkäufe, inklusive Wiederherstellung
 - Validierung und Absicherung der Eingaben
+- Auch für Mobilgeräte optimiertes UI
 
 ## Nutzung
 - Die App ist für den Betrieb auf einem Homeserver (z. B. Raspberry Pi) gedacht, kann aber auch  und lokal installiert werden.
@@ -40,6 +39,9 @@ Die App ist heute mehr als ein "einfacher Belegsammler": Sie verbindet Dokumenta
 - Die Software wird ohne Gewährleistung bereitgestellt und ist explizit keine GoBD.
 - Nutzung erfolgt in eigener Verantwortung.
 - Regelmäßige Backups sind dringend empfohlen.
+
+### Vibe-Coding Transparenz
+Diese App wurde zu einem sehr großen Teil mit KI-Coding-Assistenten erstellt. Ich bin daher für jeden echten Programmierer und Experten dankbar, der mal einen Blick auf den Code werfen kann. Hinweise oder Verbesserungen sind ausdrücklich erwünscht. Insbesondere im Bereich Sicherheit, Stabilität und Performance.
 
 ## Schnellstart lokal mit Docker
 ### Voraussetzungen
@@ -107,7 +109,7 @@ docker compose up -d
 Wichtig:
 - Persistente Daten liegen weiterhin im Volume unter `/app/data`.
 - Datenbank und Archivdateien sind nicht Teil des Docker-Images.
-- Für reproduzierbare Releases kann statt `latest` auch ein Versions-Tag wie `ghcr.io/hjenkel/atelierbuddy:0.2.3` verwendet werden.
+- Für reproduzierbare Releases kann statt `latest` auch ein Versions-Tag wie `ghcr.io/hjenkel/atelierbuddy:0.2.4` verwendet werden.
 
 ## Lokale Installation
 ### Voraussetzungen

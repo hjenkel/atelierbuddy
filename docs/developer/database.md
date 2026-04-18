@@ -1,7 +1,7 @@
 # Datenbankstruktur
 
 Quelle: `belegmanager/models.py`, `belegmanager/db.py`, `belegmanager/fts.py`  
-Version-Single-Source: `pyproject.toml` (`0.2.2`)
+Version-Single-Source: `pyproject.toml` (`0.2.4`)
 
 ## Überblick
 Atelier Buddy nutzt SQLite mit SQLModel/SQLAlchemy. Das Datenmodell ist auf lokale Nutzung, überschaubare Betriebsgröße und schnelle Iteration ausgelegt.

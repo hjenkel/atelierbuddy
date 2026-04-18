@@ -4,6 +4,13 @@ Alle wichtigen Änderungen an diesem Projekt werden in dieser Datei dokumentiert
 
 Das Format orientiert sich an Keep a Changelog, und dieses Projekt folgt Semantic Versioning (`0.y.z` vor `1.0`).
 
+## [0.2.4] - 2026-04-18
+### Geändert
+- Mobilansichten für Navigation, Hauptlisten und zentrale Detail-/Erfassungsseiten überarbeitet.
+- Mobile Tabellenansichten kompakter gestaltet und visuell klarer getrennt.
+- Projektdetailansicht bereinigt: Ohne hinterlegtes Cover wird keine leere Bildvorschau mehr angezeigt.
+- README und Entwicklerdokumentation auf Version `0.2.4` aktualisiert.
+
 ## [0.2.3] - 2026-04-17
 ### Geändert
 - Ersteinrichtung für Home-Nutzung vereinfacht: Der erste Admin kann direkt über `/setup` angelegt werden, ohne Setup-Token aus Logs oder Konsole.
