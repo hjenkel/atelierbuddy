@@ -40,9 +40,9 @@ Atelier Buddy richtet sich an Künstler:innen, Bands und andere Solo- oder Klein
 Für einen Homeserver solltest du ein Verzeichnis anlegen. Dort legst eine docker-compose.yml an, die den unten angegebenen Inhalt enthält.
 
 Wichtig:
-- `BM_SESSION_SECRET` muss vor dem ersten Start durch einen eigenen zufaelligen Wert ersetzt werden.
+- `BM_SESSION_SECRET` muss vor dem ersten Start durch einen eigenen zufälligen Wert ersetzt werden.
 - Einen geeigneten Wert kannst du z. B. mit `openssl rand -hex 32` erzeugen.
-- Das Secret sollte bei Updates unveraendert bleiben, damit bestehende Sessions nicht ungueltig werden.
+- Das Secret sollte bei Updates unverändert bleiben, damit bestehende Sessions nicht ungültig werden.
 
 Empfohlenes Compose-Beispiel:
 
@@ -119,6 +119,7 @@ Beim ersten Start wird ein Admin-Account angelegt.
 
 ## Dokumentation
 - Überblick: [docs/README.md](docs/README.md)
+- Installation & Betrieb: [docs/installation.md](docs/installation.md)
 - Technische Doku: [docs/developer/README.md](docs/developer/README.md)
 
 ## Hinweise

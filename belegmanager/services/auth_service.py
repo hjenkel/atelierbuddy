@@ -104,6 +104,41 @@ class AuthService:
 
         return user
 
+    def change_password(self, *, user_id: int, current_password: str, new_password: str) -> AppUser:
+        validated_password = self.validate_password(new_password)
+        if not current_password:
+            raise ValueError("Aktuelles Passwort ist erforderlich")
+
+        with Session(self._engine) as session:
+            user = session.get(AppUser, user_id)
+            if not user or not user.active:
+                raise ValueError("Benutzerkonto nicht gefunden")
+            try:
+                self._password_hasher.verify(user.password_hash, current_password)
+            except VerifyMismatchError as exc:
+                raise ValueError("Aktuelles Passwort ist falsch") from exc
+            except Exception as exc:
+                raise ValueError("Aktuelles Passwort konnte nicht geprüft werden") from exc
+            updated_user = self._set_password(session, user=user, new_password=validated_password)
+            session.commit()
+            session.refresh(updated_user)
+            return updated_user
+
+    def reset_password(self, *, username: str, new_password: str) -> AppUser:
+        normalized_username = self.normalize_username(username)
+        validated_password = self.validate_password(new_password)
+
+        with Session(self._engine) as session:
+            user = session.exec(
+                select(AppUser).where(func.lower(AppUser.username) == normalized_username.casefold())
+            ).first()
+            if not user:
+                raise ValueError("Benutzerkonto nicht gefunden")
+            updated_user = self._set_password(session, user=user, new_password=validated_password)
+            session.commit()
+            session.refresh(updated_user)
+            return updated_user
+
     def authenticate(
         self,
         *,
@@ -245,12 +280,25 @@ class AuthService:
             if not user or not user.active:
                 self.end_session(request)
                 return None
+            password_changed_at = self._as_utc(user.password_changed_at)
+            if password_changed_at and login_at <= int(password_changed_at.timestamp()):
+                self.end_session(request)
+                return None
             locked_until = self._as_utc(user.locked_until)
             if locked_until and locked_until > datetime.now(timezone.utc):
                 self.end_session(request)
                 return None
             request.session[self.SESSION_LAST_SEEN_AT] = now_ts
             return user
+
+    def _set_password(self, session: Session, *, user: AppUser, new_password: str) -> AppUser:
+        now = datetime.now(timezone.utc)
+        user.password_hash = self._password_hasher.hash(new_password)
+        user.locked_until = None
+        user.password_changed_at = now
+        user.updated_at = now
+        session.add(user)
+        return user
 
     def _failed_attempts_since(self, session: Session, username: str, *, now: datetime) -> int:
         since = now - timedelta(minutes=self.ATTEMPT_WINDOW_MINUTES)

@@ -390,6 +390,12 @@ def _migration_0009_invoice_profile_and_order_document_metadata(session: Session
         )
 
 
+def _migration_0010_app_user_password_changed_at(session: Session) -> None:
+    user_columns = _get_table_columns(session, "app_user")
+    if user_columns:
+        _add_column_if_missing(session, "app_user", user_columns, "password_changed_at", "TIMESTAMP")
+
+
 MIGRATIONS: tuple[MigrationStep, ...] = (
     MigrationStep(
         migration_id="0001_receipt_document_type_and_notes",
@@ -435,6 +441,11 @@ MIGRATIONS: tuple[MigrationStep, ...] = (
         migration_id="0009_invoice_profile_and_order_document_metadata",
         description="Add invoice profile table and sales order document metadata.",
         apply=_migration_0009_invoice_profile_and_order_document_metadata,
+    ),
+    MigrationStep(
+        migration_id="0010_app_user_password_changed_at",
+        description="Add password_changed_at for auth session invalidation.",
+        apply=_migration_0010_app_user_password_changed_at,
     ),
 )
 
@@ -587,3 +598,4 @@ def _validate_schema_state(session: Session) -> None:
     )
     _validate_required_columns(session, "supplier", ("active", "created_at", "updated_at"))
     _validate_required_columns(session, "import_batch", ("started_at", "finished_at", "total_count", "imported_count", "error_count"))
+    _validate_required_columns(session, "app_user", ("password_changed_at",))

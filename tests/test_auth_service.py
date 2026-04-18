@@ -69,6 +69,78 @@ def test_authenticate_locks_user_after_repeated_failures() -> None:
         assert locked_until > datetime.now(timezone.utc)
 
 
+def test_change_password_updates_hash_and_invalidates_existing_sessions() -> None:
+    service, engine = _build_auth_service()
+    user = service.create_initial_admin(username="artist", password="averysecurepass1")
+
+    request = _RequestStub()
+    service.start_session(request, user)
+
+    updated_user = service.change_password(
+        user_id=int(user.id or 0),
+        current_password="averysecurepass1",
+        new_password="anewsecurepass2",
+    )
+
+    assert updated_user.password_changed_at is not None
+    assert updated_user.password_hash != user.password_hash
+    assert service.session_user(request) is None
+
+    assert service.authenticate(username="artist", password="anewsecurepass2") is not None
+
+    with Session(engine) as session:
+        stored = session.exec(select(AppUser).where(AppUser.id == user.id)).first()
+        assert stored is not None
+        assert stored.password_changed_at is not None
+
+
+def test_change_password_rejects_wrong_current_password() -> None:
+    service, _ = _build_auth_service()
+    user = service.create_initial_admin(username="artist", password="averysecurepass1")
+
+    try:
+        service.change_password(
+            user_id=int(user.id or 0),
+            current_password="wrongpassword",
+            new_password="anewsecurepass2",
+        )
+    except ValueError as exc:
+        assert "falsch" in str(exc)
+    else:
+        raise AssertionError("expected ValueError for wrong current password")
+
+
+def test_reset_password_updates_hash_and_clears_lock() -> None:
+    service, engine = _build_auth_service()
+    user = service.create_initial_admin(username="artist", password="averysecurepass1")
+
+    for _ in range(service.MAX_FAILED_ATTEMPTS):
+        service.authenticate(username="artist", password="wrongpassword")
+
+    updated_user = service.reset_password(username="artist", new_password="anewsecurepass2")
+
+    assert updated_user.locked_until is None
+    assert updated_user.password_changed_at is not None
+    assert service.authenticate(username="artist", password="anewsecurepass2") is not None
+
+    with Session(engine) as session:
+        stored = session.exec(select(AppUser).where(AppUser.id == user.id)).first()
+        assert stored is not None
+        assert stored.locked_until is None
+
+
+def test_reset_password_rejects_unknown_user() -> None:
+    service, _ = _build_auth_service()
+    service.create_initial_admin(username="artist", password="averysecurepass1")
+
+    try:
+        service.reset_password(username="missing", new_password="anewsecurepass2")
+    except ValueError as exc:
+        assert "nicht gefunden" in str(exc)
+    else:
+        raise AssertionError("expected ValueError for unknown user")
+
+
 def test_session_user_expires_for_idle_timeout() -> None:
     service, _ = _build_auth_service()
     user = service.create_initial_admin(username="idleuser", password="averysecurepass2")

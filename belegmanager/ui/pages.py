@@ -6094,6 +6094,64 @@ def register_pages(services: ServiceContainer) -> None:
                 )
                 invoice_settings_toggle_btn.icon = "expand_less" if expanded else "edit"
 
+            def open_change_password_dialog() -> None:
+                with ui.dialog() as dialog, ui.card().classes("bm-card p-5 w-[520px] max-w-full gap-4"):
+                    ui.label("Kennwort ändern").classes("text-lg font-semibold")
+                    ui.label(
+                        "Nach einer erfolgreichen Änderung werden bestehende Sitzungen beendet und du meldest dich neu an."
+                    ).classes("text-sm text-slate-600")
+
+                    current_password_input = ui.input("Aktuelles Passwort").props("type=password").classes("w-full bm-form-field")
+                    new_password_input = ui.input("Neues Passwort").props("type=password").classes("w-full bm-form-field")
+                    confirm_password_input = ui.input("Neues Passwort wiederholen").props("type=password").classes(
+                        "w-full bm-form-field"
+                    )
+
+                    async def submit_change_password() -> None:
+                        await _flush_active_input(context.client)
+                        if (new_password_input.value or "") != (confirm_password_input.value or ""):
+                            ui.notify("Die neuen Passwörter stimmen nicht überein", type="negative")
+                            return
+
+                        current_user = services.auth_service.session_user(context.client.request)
+                        if current_user is None or current_user.id is None:
+                            dialog.close()
+                            _run_client_javascript(context.client, "window.location.assign('/login')")
+                            return
+
+                        try:
+                            services.auth_service.change_password(
+                                user_id=int(current_user.id),
+                                current_password=current_password_input.value or "",
+                                new_password=new_password_input.value or "",
+                            )
+                        except Exception as exc:
+                            _notify_error("Kennwort konnte nicht geändert werden", exc)
+                            return
+
+                        dialog.close()
+                        ui.notify("Kennwort geändert. Bitte neu anmelden.", type="positive")
+                        await asyncio.sleep(0.2)
+                        _run_client_javascript(context.client, "window.location.assign('/login')")
+
+                    with ui.row().classes("w-full justify-end gap-2"):
+                        ui.button("Abbrechen", on_click=dialog.close).props("flat")
+                        ui.button("Kennwort ändern", icon="lock_reset", on_click=submit_change_password).props(
+                            "color=primary"
+                        )
+
+                dialog.open()
+
+            with ui.card().classes("bm-card p-4 w-full gap-3"):
+                ui.label("Zugang & Sicherheit").classes("text-lg font-semibold")
+                ui.label(
+                    "Wenn du dein aktuelles Kennwort kennst, kannst du es hier direkt ändern."
+                ).classes("text-sm text-slate-600")
+                with ui.row().classes("w-full justify-end"):
+                    ui.button("Kennwort ändern", icon="password", on_click=open_change_password_dialog).props(
+                        "outline no-caps"
+                    )
+
             with ui.card().classes("bm-card p-4 w-full gap-4"):
                 ui.label("Rechnungssteller & Rechnung").classes("text-lg font-semibold")
                 ui.label(

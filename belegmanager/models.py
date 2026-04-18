@@ -16,6 +16,7 @@ class AppUser(SQLModel, table=True):
     is_admin: bool = Field(default=True)
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), index=True)
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    password_changed_at: Optional[datetime] = Field(default=None)
     last_login_at: Optional[datetime] = Field(default=None)
     locked_until: Optional[datetime] = Field(default=None)
 

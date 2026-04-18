@@ -41,13 +41,13 @@ docker compose up --build -d
 
 Hinweise:
 - Diese Variante nutzt die im Repository enthaltene [docker-compose.yml](./../docker-compose.yml).
-- Aenderungen am lokalen Code koennen durch ein erneutes `docker compose up --build -d` ins Image uebernommen werden.
+- Änderungen am lokalen Code können durch ein erneutes `docker compose up --build -d` ins Image übernommen werden.
 - Auch hier bleiben Daten im Volume `atelier_buddy_data` erhalten.
 
 ### Daten, Volumes und Backups im Docker-Betrieb
 Im Docker-Betrieb liegen die persistenten Anwendungsdaten nicht im Container selbst, sondern im Volume oder im gemounteten Datenpfad unter `/app/data`.
 
-Dazu gehoeren insbesondere:
+Dazu gehören insbesondere:
 - die SQLite-Datenbank
 - importierte und archivierte Dateien
 - erzeugte Thumbnails und OCR-Artefakte
@@ -58,3 +58,28 @@ Wichtig:
 
 ### Ersteinrichtung nach der Installation
 Beim ersten Start wird im Browser direkt der User angelegt.
+
+## Kennwort-Reset
+Atelier Buddy bietet derzeit keinen E-Mail-gestützten `Passwort vergessen`-Flow. Für lokale Installationen und Self-Hosting erfolgt der Reset über die CLI auf dem Gerät bzw. im Container.
+
+Lokal:
+
+```bash
+python -m belegmanager reset-password --user <benutzername>
+```
+
+Docker:
+
+```bash
+docker compose exec atelier-buddy python -m belegmanager reset-password --user <benutzername>
+```
+
+Für Automatisierung oder Skripte kann das neue Passwort über `stdin` gelesen werden:
+
+```bash
+printf '%s' 'NEUES-LANGES-PASSWORT' | docker compose exec -T atelier-buddy python -m belegmanager reset-password --user <benutzername> --password-stdin
+```
+
+Hinweise:
+- Nach erfolgreichem Reset sind bestehende Sitzungen des Users ungültig.
+- Der Reset ändert nur das Kennwort; Datenbank und Archivdaten unter `data/` bzw. `/app/data` bleiben unverändert.
