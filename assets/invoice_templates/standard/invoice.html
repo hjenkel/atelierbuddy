@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8" />
+    <title>Rechnung $invoice_number</title>
+  </head>
+  <body>
+    <main class="invoice-page">
+      <header class="invoice-header">
+        <div class="invoice-brand">
+          $logo_html
+        </div>
+        <div class="invoice-sender">
+          <div class="invoice-sender__name">$sender_name</div>
+          <div class="invoice-sender__address">$sender_address_html</div>
+          <div class="invoice-sender__contact">$sender_contact_html</div>
+        </div>
+      </header>
+
+      <section class="invoice-meta">
+        <div class="invoice-meta__recipient">
+          <div class="section-label">Rechnung an</div>
+          <div class="invoice-recipient">$recipient_html</div>
+        </div>
+        <div class="invoice-meta__facts">
+          <div class="section-label">Rechnungsdaten</div>
+          <dl class="meta-list">
+            <dt>Rechnungsnummer</dt>
+            <dd>$invoice_number</dd>
+            <dt>Rechnungsdatum</dt>
+            <dd>$invoice_date</dd>
+            <dt>Leistungsdatum</dt>
+            <dd>$sale_date</dd>
+            <dt>Zahlbar bis</dt>
+            <dd>$payment_due_date</dd>
+            <dt>$tax_label</dt>
+            <dd>$tax_value</dd>
+          </dl>
+        </div>
+      </section>
+
+      <section class="invoice-copy">
+        <h1>Rechnung</h1>
+        <p>Vielen Dank für deinen Auftrag. Die Positionen sind nachfolgend als Nettobeträge aufgeführt.</p>
+      </section>
+
+      <section class="invoice-items">
+        <table>
+          <thead>
+            <tr>
+              <th>Pos.</th>
+              <th>Beschreibung</th>
+              <th class="align-right">Menge</th>
+              <th class="align-right">Einzelpreis</th>
+              <th class="align-right">Summe</th>
+            </tr>
+          </thead>
+          <tbody>
+            $items_html
+          </tbody>
+          <tfoot>
+            <tr>
+              <th colspan="4">Gesamt</th>
+              <th class="align-right">$total_net</th>
+            </tr>
+          </tfoot>
+        </table>
+      </section>
+
+      <section class="invoice-summary">
+        <div class="invoice-summary__notice">
+          <p>Gem. §19 UStG wird keine Umsatzsteuer berechnet.</p>
+          <p>Zahlungsziel: $payment_term_days Tage.</p>
+          <p class="invoice-note">$notes</p>
+        </div>
+        <div class="invoice-summary__payment">
+          <div class="section-label">Bankverbindung</div>
+          <dl class="meta-list meta-list--compact">
+            <dt>Kontoinhaber</dt>
+            <dd>$bank_account_holder</dd>
+            <dt>IBAN</dt>
+            <dd>$iban</dd>
+            <dt>BIC</dt>
+            <dd>$bic</dd>
+          </dl>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>

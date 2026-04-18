@@ -163,6 +163,57 @@ async def save_uploaded_order_invoice(file_upload: "FileUpload", order_id: int) 
     return destination
 
 
+def create_generated_order_invoice_path(order_id: int, invoice_number: str | None = None) -> Path:
+    if order_id <= 0:
+        raise ValueError("Verkauf nicht gefunden")
+    timestamp = datetime.now().strftime("%Y/%m")
+    target_dir = settings.order_invoices_dir / timestamp
+    target_dir.mkdir(parents=True, exist_ok=True)
+
+    normalized_number = "".join(ch for ch in (invoice_number or "").strip() if ch.isalnum() or ch in {"-", "_"})
+    readable_suffix = f"_{normalized_number}" if normalized_number else ""
+    return target_dir / f"order_{order_id}{readable_suffix}_{uuid.uuid4().hex}.pdf"
+
+
+async def save_uploaded_invoice_logo(file_upload: "FileUpload") -> Path:
+    _ensure_safe_filename(file_upload.name)
+    suffix = Path(file_upload.name).suffix.lower()
+    if suffix not in SUPPORTED_IMAGE_EXTENSIONS:
+        raise ValueError(f"Nicht unterstützter Bildtyp: {file_upload.name}")
+    try:
+        upload_size = int(file_upload.size())
+    except Exception:
+        upload_size = 0
+    if upload_size > int(settings.max_upload_bytes):
+        raise ValueError(f"Datei zu groß (max. {settings.max_upload_mb} MB)")
+
+    target_dir = settings.invoice_logos_dir
+    target_dir.mkdir(parents=True, exist_ok=True)
+
+    upload_token = uuid.uuid4().hex
+    source_tmp = target_dir / f"invoice_logo_{upload_token}{suffix}"
+    destination = target_dir / f"invoice_logo_{upload_token}.webp"
+    await file_upload.save(source_tmp)
+    validate_cover_file(source_tmp)
+
+    try:
+        with Image.open(source_tmp) as image:
+            image = ImageOps.exif_transpose(image)
+            if image.mode not in {"RGB", "RGBA"}:
+                image = image.convert("RGB")
+            if image.mode == "RGBA":
+                flattened = Image.new("RGB", image.size, "#ffffff")
+                flattened.paste(image, mask=image.split()[3])
+                image = flattened
+
+            image.thumbnail((1600, 800), Image.Resampling.LANCZOS)
+            image.save(destination, format="WEBP", quality=88, method=6)
+    finally:
+        source_tmp.unlink(missing_ok=True)
+
+    return destination
+
+
 async def save_uploaded_work_cover(file_upload: "FileUpload", work_id: int) -> Path:
     _ensure_safe_filename(file_upload.name)
     suffix = Path(file_upload.name).suffix.lower()

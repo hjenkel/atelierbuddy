@@ -1,6 +1,6 @@
 # Architekturentscheidungen
 
-Version-Single-Source: `pyproject.toml` (`0.2.4`)
+Version-Single-Source: `pyproject.toml` (`0.3.0`)
 
 ## 1. Lokal-first und self-hosted
 Entscheidung:
@@ -48,7 +48,7 @@ Warum:
 - sichert Summenkonsistenz
 - bildet eine belastbare Basis für Reports
 
-## 5. Verkauf und Rechnung sind in v0.2 derselbe Datensatz
+## 5. Verkauf und Rechnung bleiben auch in 0.3 derselbe Datensatz
 Entscheidung:
 - es gibt kein separates Rechnungsobjekt
 - `sales_order` modelliert den Verkauf und bei gesetztem Rechnungsdatum zugleich die Ausgangsrechnung
@@ -58,17 +58,31 @@ Warum:
 - deckt den praktischen Kernworkflow bereits gut ab
 
 Konsequenz:
-- spätere Erweiterungen wie Zahlungseingänge, Teilzahlungen oder automatische Dokumenterzeugung können ein eigenes Modell erfordern
+- spätere Erweiterungen wie Zahlungseingänge oder Teilzahlungen können ein eigenes Modell erfordern
+- die inzwischen umgesetzte automatische Dokumenterzeugung bleibt trotzdem am bestehenden Verkaufsobjekt aufgehängt
 
 ## 6. Rechnungsdokument direkt am Verkauf
 Entscheidung:
 - ein Verkauf kann genau ein Rechnungsdokument referenzieren
 - Upload/Ersetzen passiert direkt auf der Verkaufsdetailseite
+- automatische PDF-Erzeugung ersetzt denselben Dokument-Slot
 - kein OCR, kein ImportBatch und keine Beleg-Erstellung für diese Datei
 
 Warum:
 - Ausgangsrechnungen sollen nachvollziehbar mit Datei abgelegt werden
 - die Datei ist Teil des Verkaufsstatus, aber kein eigener Belegworkflow
+- das hält UI, Datenmodell und Archivlogik einfacher als ein separates Dokumentobjekt
+
+## 6a. Rechnungs-PDF als Snapshot über festen HTML/CSS-Renderer
+Entscheidung:
+- Rechnungen werden in v1 über ein mitgeliefertes HTML/CSS-Standardtemplate erzeugt
+- Rendering läuft serverseitig über `WeasyPrint`
+- Template-Dateien liegen getrennt vom Python-Code, sind aber noch nicht frei durch Nutzer bearbeitbar
+
+Warum:
+- trennt Rechnungsdaten, Vorlage und PDF-Erzeugung sauber
+- hält die aktuelle Standardfunktion stabil
+- bereitet spätere Template-Features vor, ohne schon eine freie Template-Engine zu öffnen
 
 ## 7. Einnahmenauswertung nach Rechnungsdatum
 

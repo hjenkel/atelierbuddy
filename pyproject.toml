@@ -1,6 +1,6 @@
 [project]
 name = "belegmanager"
-version = "0.2.4"
+version = "0.3.0"
 description = "Lokale Belegverwaltung fuer selbststaendige Kuenstler:innen"
 readme = "README.md"
 license = {text = "AGPL-3.0-or-later"}
@@ -17,7 +17,8 @@ dependencies = [
   "argon2-cffi>=23.1.0",
   "python-dateutil>=2.9.0",
   "pypdfium2>=4.30.0",
-  "pillow-heif>=0.21.0"
+  "pillow-heif>=0.21.0",
+  "weasyprint>=68.0"
 ]
 
 [project.optional-dependencies]

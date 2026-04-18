@@ -2,7 +2,7 @@
 
 Lokale Web-App für Belegverwaltung, Ausgangsrechnungen und betriebliche Auswertungen in kreativen Arbeitskontexten.
 
-Aktuelle Version: `0.2.4` (pre-alpha)
+Aktuelle Version: `0.3.0` (pre-alpha)
 
 ## Was ist Atelier Buddy?
 Atelier Buddy richtet sich an Künstler:innen, Bands und andere Solo- oder Kleinstteams, die Belege, Kontakte, Projekte und Verkäufe an einem Ort pflegen möchten, ohne in klassische ERP- oder Steuerkanzlei-Software zu wechseln.
@@ -25,6 +25,7 @@ Atelier Buddy richtet sich an Künstler:innen, Bands und andere Solo- oder Klein
 - Kontakt-Datenbank
 - Verkaufsverwaltung, welche Einnahmen darstellt und ausgehende Rechnungen archivieren kann.
 - Rechnungsdokument je Verkauf mit direktem Upload/Ersetzen in der Detailansicht
+- Automatische Erzeugung einer Rechnungs-PDF
 - Einnahmenauswertung mit Projektdrilldown
 - Soft-Delete für Belege und Verkäufe, inklusive Wiederherstellung
 - Validierung und Absicherung der Eingaben
@@ -109,23 +110,25 @@ docker compose up -d
 Wichtig:
 - Persistente Daten liegen weiterhin im Volume unter `/app/data`.
 - Datenbank und Archivdateien sind nicht Teil des Docker-Images.
-- Für reproduzierbare Releases kann statt `latest` auch ein Versions-Tag wie `ghcr.io/hjenkel/atelierbuddy:0.2.4` verwendet werden.
+- Für reproduzierbare Releases kann statt `latest` auch ein Versions-Tag wie `ghcr.io/hjenkel/atelierbuddy:0.3.0` verwendet werden.
 
 ## Lokale Installation
 ### Voraussetzungen
 - Python 3.12+
-- `ocrmypdf`, `tesseract`, `ghostscript` im Systempfad
+- `ocrmypdf`, `tesseract`, `ghostscript` für Volltextsuche aus PDFs und Bildern
+- für automatische Rechnungs-PDFs: `WeasyPrint` plus benötigte Systembibliotheken
 
 macOS:
 ```bash
 brew install ocrmypdf tesseract ghostscript
 brew install tesseract-lang
+brew install weasyprint
 ```
 
 Ubuntu/Debian:
 ```bash
 sudo apt update
-sudo apt install -y ocrmypdf tesseract-ocr tesseract-ocr-deu tesseract-ocr-eng ghostscript
+sudo apt install -y ocrmypdf tesseract-ocr tesseract-ocr-deu tesseract-ocr-eng ghostscript libpango-1.0-0 libpangoft2-1.0-0 libharfbuzz-subset0
 ```
 
 ### Start
@@ -168,6 +171,7 @@ Im Docker-Betrieb mit benanntem Volume sollte stattdessen das Volume bzw. der ge
 - Tests: `./.venv/bin/python -m pytest -q`
 - Versionsquelle: `pyproject.toml` -> `[project].version`
 - Changelog: [CHANGELOG.md](CHANGELOG.md)
+- Rechnungssteller:in, Steuerkennzeichen, Bankverbindung, Zahlungsziel und Logo werden in der App unter `Einstellungen` gepflegt.
 
 ## Dokumentation
 - Überblick: [docs/README.md](docs/README.md)

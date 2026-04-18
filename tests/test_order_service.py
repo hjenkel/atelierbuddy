@@ -8,7 +8,13 @@ from sqlmodel import SQLModel, Session, create_engine, select
 from belegmanager.models import Contact, ContactCategory, Order, Project
 from belegmanager.schemas import OrderItemInput
 from belegmanager.services.order_search_service import OrderSearchService
-from belegmanager.services.order_service import OrderService, order_item_total_cents, order_status_key, order_status_label
+from belegmanager.services.order_service import (
+    OrderService,
+    order_invoice_document_source_label,
+    order_item_total_cents,
+    order_status_key,
+    order_status_label,
+)
 
 
 def _build_services() -> tuple[OrderService, OrderSearchService, object]:
@@ -482,6 +488,8 @@ def test_remove_invoice_document_clears_document_fields_and_returns_old_path() -
     assert stored_order.invoice_document_path is None
     assert stored_order.invoice_document_original_filename is None
     assert stored_order.invoice_document_uploaded_at is None
+    assert stored_order.invoice_document_updated_at is None
+    assert stored_order.invoice_document_source is None
     assert order_status_key(stored_order) == "document_missing"
 
 
@@ -521,6 +529,7 @@ def test_order_with_document_only_can_be_deleted_after_document_removal() -> Non
         document_path="/tmp/rechnung-mit-nummer.pdf",
         original_filename="rechnung-mit-nummer.pdf",
     )
+    service.remove_invoice_document(numbered_order.id or 0)
     service.save_order(
         order_id=numbered_order.id or 0,
         contact_id=contact_id,
@@ -540,7 +549,6 @@ def test_order_with_document_only_can_be_deleted_after_document_removal() -> Non
     )
 
     service.remove_invoice_document(document_only_order.id or 0)
-    service.remove_invoice_document(numbered_order.id or 0)
 
     service.move_to_trash(document_only_order.id or 0)
     try:
@@ -549,3 +557,97 @@ def test_order_with_document_only_can_be_deleted_after_document_removal() -> Non
         assert "nicht gelöscht oder archiviert" in str(exc)
     else:
         raise AssertionError("expected ValueError for archiving numbered order")
+
+
+def test_set_invoice_document_tracks_source_and_manual_label() -> None:
+    service, _, engine = _build_services()
+    contact_id, _ = _seed_contact_and_project(engine)
+    order = service.create_order(contact_id=contact_id, sale_date=date(2026, 1, 10))
+
+    service.set_invoice_document(
+        order_id=order.id or 0,
+        document_path="/tmp/rechnung.pdf",
+        original_filename="rechnung.pdf",
+        source="uploaded",
+    )
+
+    with Session(engine) as session:
+        stored_order = session.get(Order, order.id)
+
+    assert stored_order is not None
+    assert stored_order.invoice_document_source == "uploaded"
+    assert stored_order.invoice_document_uploaded_at is not None
+    assert stored_order.invoice_document_updated_at is not None
+    assert order_invoice_document_source_label(stored_order) == "Manuell hochgeladen"
+
+
+def test_save_order_blocks_invoice_relevant_changes_while_document_exists() -> None:
+    service, _, engine = _build_services()
+    contact_id, project_id = _seed_contact_and_project(engine)
+    order = service.create_order(contact_id=contact_id, sale_date=date(2026, 1, 10))
+    service.save_order(
+        order_id=order.id or 0,
+        contact_id=contact_id,
+        sale_date=date(2026, 1, 10),
+        invoice_date=date(2026, 1, 12),
+        invoice_number="RE-2026-21",
+        notes="Vorlage",
+        items=[
+            OrderItemInput(
+                description="Poster",
+                quantity=Decimal("1.000"),
+                unit_price_cents=12000,
+                project_id=project_id,
+                position=1,
+            )
+        ],
+    )
+    service.set_invoice_document(
+        order_id=order.id or 0,
+        document_path="/tmp/re-2026-21.pdf",
+        original_filename="re-2026-21.pdf",
+        source="generated",
+    )
+
+    try:
+        service.save_order(
+            order_id=order.id or 0,
+            contact_id=contact_id,
+            sale_date=date(2026, 1, 11),
+            invoice_date=date(2026, 1, 12),
+            invoice_number="RE-2026-21",
+            notes="Aenderung",
+            items=[
+                OrderItemInput(
+                    description="Poster",
+                    quantity=Decimal("1.000"),
+                    unit_price_cents=12000,
+                    project_id=project_id,
+                    position=1,
+                )
+            ],
+        )
+    except ValueError as exc:
+        assert "Rechnungsrelevante Felder" in str(exc)
+    else:
+        raise AssertionError("expected ValueError for changing locked invoice data")
+
+    saved = service.save_order(
+        order_id=order.id or 0,
+        contact_id=contact_id,
+        sale_date=date(2026, 1, 10),
+        invoice_date=date(2026, 1, 12),
+        invoice_number="RE-2026-21",
+        notes="Nur Notiz geaendert",
+        items=[
+            OrderItemInput(
+                description="Poster",
+                quantity=Decimal("1.000"),
+                unit_price_cents=12000,
+                project_id=project_id,
+                position=1,
+            )
+        ],
+    )
+
+    assert saved.notes == "Nur Notiz geaendert"

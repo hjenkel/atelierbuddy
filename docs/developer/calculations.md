@@ -1,7 +1,7 @@
 # Berechnungen und Validierung
 
 Quelle: `belegmanager/ui/pages.py`, `belegmanager/services/receipt_service.py`, `belegmanager/services/cost_allocation_service.py`, `belegmanager/services/order_service.py`, `belegmanager/services/report_service.py`  
-Version-Single-Source: `pyproject.toml` (`0.2.4`)
+Version-Single-Source: `pyproject.toml` (`0.3.0`)
 
 ## Geldwerte und Parsing
 Geld wird als Integer-Cents gespeichert.
@@ -82,6 +82,9 @@ Rechnungsnummer:
 - wird beim Speichern getrimmt
 - ist verpflichtend, sobald `invoice_date` gesetzt ist
 - muss eindeutig sein
+- automatische Vergabe beim PDF-Generieren läuft im Format `RE-YYYY-0001`
+- die Rechnungssequenz ist unabhängig von der internen Verkaufsnummer
+- wenn beim PDF-Generieren noch kein Rechnungsdatum gesetzt ist, wird zuerst `heute` als effektives Rechnungsdatum verwendet und daraus das Rechnungsjahr abgeleitet
 
 ## Statuslogik für Verkäufe
 Der Status wird nicht gespeichert, sondern aus Feldern abgeleitet:
@@ -91,6 +94,14 @@ Der Status wird nicht gespeichert, sondern aus Feldern abgeleitet:
 
 Zusätzliche Schutzregel:
 - sobald `invoice_date`, `invoice_number` oder Rechnungsdatei gesetzt ist, kann der Verkauf nicht mehr gelöscht oder archiviert werden
+- sobald eine Rechnungsdatei vorhanden ist, sind rechnungsrelevante Felder nur nach Entfernen des Dokuments wieder änderbar
+
+## Rechnungserzeugung und Snapshot-Regel
+- automatische Rechnungserzeugung validiert den gespeicherten Verkaufsstand zusammen mit dem installweiten `invoice_profile`
+- vor dem Start der PDF-Erzeugung speichert die UI ungesicherte Formularänderungen automatisch
+- gerendert wird ein festes HTML/CSS-Standardtemplate
+- das resultierende PDF wird als Snapshot gespeichert
+- Änderungen an Kontakt, Positionen, Rechnungsstellerdaten oder Logo wirken erst auf die nächste neu erzeugte Rechnung
 
 ## Report-Logik
 Ausgabenreport:

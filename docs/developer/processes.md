@@ -1,12 +1,13 @@
 # Prozesse und Flows
 
 Quelle: `belegmanager/services/*`, `belegmanager/ui/pages.py`, `belegmanager/app_state.py`  
-Version-Single-Source: `pyproject.toml` (`0.2.4`)
+Version-Single-Source: `pyproject.toml` (`0.3.0`)
 
 ## Service-Architektur
 `app_state.get_services()` baut einen gemeinsamen Service-Container mit:
 - `AuthService`
 - `ImportService`
+- `InvoiceService`
 - `OCRService`
 - `OCRJobQueue`
 - `SearchService`
@@ -64,6 +65,14 @@ Rechnungsdokument:
 - genau eine Datei pro Verkauf
 - erlaubte Dateitypen entsprechen Belegen
 - kein OCR, kein ImportBatch, kein Thumbnail
+- Dokumentquelle wird als `generated` oder `uploaded` gespeichert
+- automatische PDF-Erzeugung läuft über `InvoiceService`
+- vor dem Generieren werden aktive Formularänderungen in der UI zunächst gespeichert
+- fehlendes Rechnungsdatum wird beim Generieren automatisch auf `heute` gesetzt
+- fehlende Rechnungsnummer wird beim Generieren automatisch im Format `RE-YYYY-0001` vergeben
+- PDF-Erzeugung rendert das feste HTML/CSS-Standardtemplate über `WeasyPrint`
+- die erzeugte PDF wird als Snapshot gespeichert und später nicht still neu generiert
+- sobald ein Rechnungsdokument vorhanden ist, sind Kontakt, Positionen, Verkaufsdatum, Rechnungsdatum und Rechnungsnummer gesperrt
 - `Abgerechnet` ist erst erreicht, wenn Rechnungsdatum, Rechnungsnummer und Datei vorhanden sind
 
 ## Flow 4: Suchen und Filtern
@@ -89,6 +98,7 @@ Rechnungsdokument:
 - Soft-Delete über `OrderService.move_to_trash(...)`
 - Wiederherstellung über `restore_from_trash(...)`
 - Hard-Delete entfernt Verkauf und Positionen
+- vorhandene Rechnungsdateien können auf der Detailseite entfernt werden; danach werden die rechnungsrelevanten Felder wieder editierbar
 
 Zusätzliche Schutzregel:
 - Verkäufe mit `invoice_date`, `invoice_number` oder Rechnungsdokument dürfen weder archiviert noch gelöscht werden
@@ -105,6 +115,15 @@ Zusätzliche Schutzregel:
 Wichtige Schutzregeln:
 - Kontakte dürfen nicht gelöscht werden, wenn Verkäufe referenzieren
 - Projekte dürfen nicht gelöscht werden, wenn Beleg-Zuordnungen oder Verkaufspositionen referenzieren
+
+## Flow 6a: Rechnungssteller pflegen
+1. In `Einstellungen` wird das installweite Rechnungssteller-Profil bearbeitet.
+2. `InvoiceService.update_profile(...)` validiert und speichert Absenderdaten, Steuerkennzeichen, Bankverbindung und Standard-Zahlungsziel.
+3. Das Logo wird separat hochgeladen und als Archivpfad im Profil referenziert.
+
+Wichtig:
+- es gibt genau ein Rechnungssteller-Profil pro Installation
+- die Profildaten wirken auf neu erzeugte Rechnungs-PDFs, nicht rückwirkend auf bestehende Snapshots
 
 ## Flow 7: Auswertung
 ### Ausgaben

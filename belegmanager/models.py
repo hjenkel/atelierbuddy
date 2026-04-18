@@ -139,6 +139,31 @@ class Project(SQLModel, table=True):
     order_items: List["OrderItem"] = Relationship(back_populates="project")
 
 
+class InvoiceProfile(SQLModel, table=True):
+    __tablename__ = "invoice_profile"
+
+    id: Optional[int] = Field(default=1, primary_key=True)
+    display_name: Optional[str] = Field(default=None)
+    street: Optional[str] = Field(default=None)
+    house_number: Optional[str] = Field(default=None)
+    address_extra: Optional[str] = Field(default=None)
+    postal_code: Optional[str] = Field(default=None)
+    city: Optional[str] = Field(default=None)
+    country: str = Field(default="DE", index=True)
+    email: Optional[str] = Field(default=None)
+    phone: Optional[str] = Field(default=None)
+    website: Optional[str] = Field(default=None)
+    tax_id_type: str = Field(default="tax_number")
+    tax_id_value: Optional[str] = Field(default=None)
+    bank_account_holder: Optional[str] = Field(default=None)
+    iban: Optional[str] = Field(default=None)
+    bic: Optional[str] = Field(default=None)
+    payment_term_days: Optional[int] = Field(default=None)
+    logo_path: Optional[str] = Field(default=None)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), index=True)
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
 class ImportBatch(SQLModel, table=True):
     __tablename__ = "import_batch"
 
@@ -216,6 +241,8 @@ class Order(SQLModel, table=True):
     invoice_document_path: Optional[str] = Field(default=None)
     invoice_document_original_filename: Optional[str] = Field(default=None)
     invoice_document_uploaded_at: Optional[datetime] = Field(default=None)
+    invoice_document_updated_at: Optional[datetime] = Field(default=None)
+    invoice_document_source: Optional[str] = Field(default=None)
     notes: Optional[str] = Field(default=None)
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), index=True)
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

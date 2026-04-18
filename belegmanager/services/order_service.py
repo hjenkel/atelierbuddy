@@ -15,6 +15,7 @@ from ..schemas import OrderItemInput
 QUANTITY_STEP = Decimal("0.001")
 MAX_DESCRIPTION_LENGTH = 255
 MAX_NOTES_LENGTH = 5000
+INVOICE_DOCUMENT_SOURCES = {"generated", "uploaded"}
 
 
 def order_status_key(order: Order) -> str:
@@ -33,6 +34,15 @@ def order_status_label(order: Order) -> str:
         "document_missing": "Dokument fehlt",
         "invoiced": "Abgerechnet",
     }[order_status_key(order)]
+
+
+def order_invoice_document_source_label(order: Order) -> str | None:
+    source = (order.invoice_document_source or "").strip().lower()
+    if source == "generated":
+        return "Automatisch generiert"
+    if source == "uploaded":
+        return "Manuell hochgeladen"
+    return None
 
 
 def order_item_total_cents(quantity: Decimal, unit_price_cents: int) -> int:
@@ -103,6 +113,14 @@ class OrderService:
 
             self._ensure_invoice_number_available(session, normalized_invoice_number, order_id)
             self._ensure_projects_exist(session, normalized_items)
+            self._ensure_relevant_fields_can_be_changed(
+                order=order,
+                contact_id=contact_id,
+                sale_date=sale_date,
+                invoice_date=invoice_date,
+                invoice_number=normalized_invoice_number,
+                items=normalized_items,
+            )
 
             order.contact_id = contact_id
             order.sale_date = sale_date
@@ -163,13 +181,23 @@ class OrderService:
             session.add(order)
             session.commit()
 
-    def set_invoice_document(self, *, order_id: int, document_path: str, original_filename: str) -> str | None:
+    def set_invoice_document(
+        self,
+        *,
+        order_id: int,
+        document_path: str,
+        original_filename: str,
+        source: str = "uploaded",
+    ) -> str | None:
         normalized_document_path = (document_path or "").strip()
         normalized_original_filename = (original_filename or "").strip()
+        normalized_source = (source or "").strip().lower()
         if not normalized_document_path:
             raise ValueError("Rechnungsdokument fehlt")
         if not normalized_original_filename:
             raise ValueError("Dateiname fehlt")
+        if normalized_source not in INVOICE_DOCUMENT_SOURCES:
+            raise ValueError("Dokumentquelle ist ungültig")
 
         with Session(self._engine) as session:
             order = session.get(Order, order_id)
@@ -181,7 +209,10 @@ class OrderService:
             old_document_path = order.invoice_document_path
             order.invoice_document_path = normalized_document_path
             order.invoice_document_original_filename = normalized_original_filename
-            order.invoice_document_uploaded_at = datetime.now(timezone.utc)
+            now = datetime.now(timezone.utc)
+            order.invoice_document_uploaded_at = now if normalized_source == "uploaded" else None
+            order.invoice_document_updated_at = now
+            order.invoice_document_source = normalized_source
             order.updated_at = datetime.now(timezone.utc)
             session.add(order)
             session.commit()
@@ -199,6 +230,8 @@ class OrderService:
             order.invoice_document_path = None
             order.invoice_document_original_filename = None
             order.invoice_document_uploaded_at = None
+            order.invoice_document_updated_at = None
+            order.invoice_document_source = None
             order.updated_at = datetime.now(timezone.utc)
             session.add(order)
             session.commit()
@@ -324,3 +357,37 @@ class OrderService:
             or (order.invoice_document_path or "").strip()
         ):
             raise ValueError("Verkäufe mit Rechnungsdaten oder Rechnungsdokument können nicht gelöscht oder archiviert werden")
+
+    def _ensure_relevant_fields_can_be_changed(
+        self,
+        *,
+        order: Order,
+        contact_id: int,
+        sale_date: date,
+        invoice_date: date | None,
+        invoice_number: str | None,
+        items: list[OrderItemInput],
+    ) -> None:
+        if not (order.invoice_document_path or "").strip():
+            return
+        current_items = [
+            OrderItemInput(
+                description=item.description,
+                quantity=Decimal(item.quantity),
+                unit_price_cents=int(item.unit_price_cents),
+                project_id=item.project_id,
+                position=index,
+            )
+            for index, item in enumerate(sorted(order.items, key=lambda current: current.position), start=1)
+        ]
+        same_items = current_items == items
+        if (
+            order.contact_id != contact_id
+            or order.sale_date != sale_date
+            or order.invoice_date != invoice_date
+            or self._normalize_invoice_number(order.invoice_number) != invoice_number
+            or not same_items
+        ):
+            raise ValueError(
+                "Rechnungsrelevante Felder können erst nach Entfernen des Rechnungsdokuments geändert werden"
+            )

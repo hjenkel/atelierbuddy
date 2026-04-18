@@ -24,6 +24,8 @@ def _temp_settings(tmp_path: Path) -> Settings:
         ocr_dir=archive_dir / "ocr",
         thumbs_dir=archive_dir / "thumbs",
         order_invoices_dir=archive_dir / "order_invoices",
+        invoice_assets_dir=archive_dir / "invoice_assets",
+        invoice_logos_dir=archive_dir / "invoice_assets" / "logos",
         works_cover_dir=archive_dir / "work_covers",
     )
 
@@ -158,10 +160,14 @@ def test_init_db_migrates_legacy_schema_without_touching_archive(
 
     with Session(engine) as session:
         contact_columns = {str(row[1]) for row in session.exec(text("PRAGMA table_info(contact)")).all()}
+        order_columns = {str(row[1]) for row in session.exec(text("PRAGMA table_info(sales_order)")).all()}
+        profile_columns = {str(row[1]) for row in session.exec(text("PRAGMA table_info(invoice_profile)")).all()}
         migrated_country = session.exec(text("SELECT country FROM contact WHERE id = 1")).one()
         migration_count = session.exec(text("SELECT COUNT(*) FROM schema_migration")).one()
 
     assert {"street", "house_number", "address_extra", "postal_code", "country"}.issubset(contact_columns)
+    assert {"invoice_document_updated_at", "invoice_document_source"}.issubset(order_columns)
+    assert {"display_name", "tax_id_type", "payment_term_days", "logo_path"}.issubset(profile_columns)
     assert migrated_country[0] == "DE"
     assert migration_count[0] == len(db.MIGRATIONS)
     assert archive_probe.read_text(encoding="utf-8") == "preserve me"

@@ -19,7 +19,7 @@ from .constants import (
     default_subcategory_name_for_cost_type,
 )
 from .fts import init_fts
-from .models import Contact, ContactCategory, CostAllocation, CostArea, CostSubcategory, CostType, Order, OrderItem
+from .models import Contact, ContactCategory, CostAllocation, CostArea, CostSubcategory, CostType, InvoiceProfile, Order, OrderItem
 
 LOG = logging.getLogger(__name__)
 MIGRATION_TABLE = "schema_migration"
@@ -336,6 +336,60 @@ def _migration_0008_supplier_and_import_batch_fields(session: Session) -> None:
         _add_column_if_missing(session, "import_batch", import_batch_columns, "error_count", "INTEGER DEFAULT 0")
 
 
+def _migration_0009_invoice_profile_and_order_document_metadata(session: Session) -> None:
+    session.exec(
+        text(
+            """
+            CREATE TABLE IF NOT EXISTS invoice_profile (
+                id INTEGER PRIMARY KEY,
+                display_name TEXT,
+                street TEXT,
+                house_number TEXT,
+                address_extra TEXT,
+                postal_code TEXT,
+                city TEXT,
+                country TEXT DEFAULT 'DE',
+                email TEXT,
+                phone TEXT,
+                website TEXT,
+                tax_id_type TEXT DEFAULT 'tax_number',
+                tax_id_value TEXT,
+                bank_account_holder TEXT,
+                iban TEXT,
+                bic TEXT,
+                payment_term_days INTEGER,
+                logo_path TEXT,
+                created_at TIMESTAMP,
+                updated_at TIMESTAMP
+            )
+            """
+        )
+    )
+
+    profile_exists = session.get(InvoiceProfile, 1)
+    if profile_exists is None:
+        session.add(InvoiceProfile(id=1))
+        session.flush()
+
+    order_columns = _get_table_columns(session, "sales_order")
+    if order_columns:
+        _add_column_if_missing(session, "sales_order", order_columns, "invoice_document_updated_at", "TIMESTAMP")
+        _add_column_if_missing(session, "sales_order", order_columns, "invoice_document_source", "TEXT")
+        session.exec(
+            text(
+                "UPDATE sales_order SET invoice_document_source = 'uploaded' "
+                "WHERE invoice_document_path IS NOT NULL AND TRIM(invoice_document_path) <> '' "
+                "AND (invoice_document_source IS NULL OR TRIM(invoice_document_source) = '')"
+            )
+        )
+        session.exec(
+            text(
+                "UPDATE sales_order SET invoice_document_updated_at = invoice_document_uploaded_at "
+                "WHERE invoice_document_updated_at IS NULL AND invoice_document_uploaded_at IS NOT NULL"
+            )
+        )
+
+
 MIGRATIONS: tuple[MigrationStep, ...] = (
     MigrationStep(
         migration_id="0001_receipt_document_type_and_notes",
@@ -376,6 +430,11 @@ MIGRATIONS: tuple[MigrationStep, ...] = (
         migration_id="0008_supplier_and_import_batch_fields",
         description="Add supplier and import batch bookkeeping fields.",
         apply=_migration_0008_supplier_and_import_batch_fields,
+    ),
+    MigrationStep(
+        migration_id="0009_invoice_profile_and_order_document_metadata",
+        description="Add invoice profile table and sales order document metadata.",
+        apply=_migration_0009_invoice_profile_and_order_document_metadata,
     ),
 )
 
@@ -495,6 +554,33 @@ def _validate_schema_state(session: Session) -> None:
             "invoice_document_path",
             "invoice_document_original_filename",
             "invoice_document_uploaded_at",
+            "invoice_document_updated_at",
+            "invoice_document_source",
+            "created_at",
+            "updated_at",
+        ),
+    )
+    _validate_required_columns(
+        session,
+        "invoice_profile",
+        (
+            "display_name",
+            "street",
+            "house_number",
+            "address_extra",
+            "postal_code",
+            "city",
+            "country",
+            "email",
+            "phone",
+            "website",
+            "tax_id_type",
+            "tax_id_value",
+            "bank_account_holder",
+            "iban",
+            "bic",
+            "payment_term_days",
+            "logo_path",
             "created_at",
             "updated_at",
         ),

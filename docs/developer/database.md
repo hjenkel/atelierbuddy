@@ -1,7 +1,7 @@
 # Datenbankstruktur
 
 Quelle: `belegmanager/models.py`, `belegmanager/db.py`, `belegmanager/fts.py`  
-Version-Single-Source: `pyproject.toml` (`0.2.4`)
+Version-Single-Source: `pyproject.toml` (`0.3.0`)
 
 ## Überblick
 Atelier Buddy nutzt SQLite mit SQLModel/SQLAlchemy. Das Datenmodell ist auf lokale Nutzung, überschaubare Betriebsgröße und schnelle Iteration ausgelegt.
@@ -46,11 +46,22 @@ Verkaufskopf mit:
 - Verkaufsdatum
 - optionalem Rechnungsdatum
 - optionaler, eindeutiger Rechnungsnummer
-- optionalem Rechnungsdokument mit Originaldateiname und Upload-Zeitpunkt
+- optionalem Rechnungsdokument mit Originaldateiname, Legacy-Upload-Zeitpunkt, neutralem Dokument-Zeitpunkt und Dokumentquelle (`generated` / `uploaded`)
 - Notiz
 - Soft-Delete
 
 In v0.2 gibt es kein separates Rechnungsobjekt. Verkauf und Ausgangsrechnung sind derselbe Datensatz; die Rechnungsdatei hängt direkt am Verkauf.
+Auch in `0.3.0` bleibt dieses Modell bewusst bestehen: automatische PDF-Erzeugung und manueller Upload arbeiten direkt auf demselben Dokument-Slot des Verkaufs.
+
+### `invoice_profile`
+Installweites Singleton für automatisch erzeugte Rechnungen mit:
+- Absender-/Adressdaten
+- Steuerkennzeichen-Typ und -Wert
+- Bankverbindung
+- Standard-Zahlungsziel
+- optionalem Logo-Pfad
+
+Die Werte werden in der UI unter `Einstellungen` gepflegt und vom `InvoiceService` für die automatische PDF-Erzeugung verwendet.
 
 ### `sales_order_item`
 Positionszeilen eines Verkaufs mit:
@@ -73,7 +84,12 @@ Die Verkaufssumme wird nicht separat gespeichert, sondern aus diesen Positionen 
 ### Dateiablage
 - Belege liegen unter `data/archive/originals`.
 - Verkaufs-Rechnungsdokumente liegen unter `data/archive/order_invoices`.
+- Rechnungslogos liegen unter `data/archive/invoice_assets`.
 - `/files/...` liefert beide Dateitypen aus dem Archiv aus.
+
+Für generierte Rechnungen gilt:
+- das PDF ist ein Snapshot des damaligen Verkaufs- und Rechnungsstellerstands
+- spätere Änderungen an Kontakt, Positionen oder Rechnungsstellerdaten aktualisieren vorhandene PDFs nicht automatisch
 
 ### Auth-Tabellen
 - `app_user`: lokale Benutzerkonten

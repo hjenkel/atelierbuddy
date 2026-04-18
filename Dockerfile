@@ -21,6 +21,10 @@ LABEL org.opencontainers.image.title="Atelier Buddy" \
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
+        fonts-dejavu-core \
+        libharfbuzz-subset0 \
+        libpango-1.0-0 \
+        libpangoft2-1.0-0 \
         ocrmypdf \
         tesseract-ocr \
         tesseract-ocr-deu \

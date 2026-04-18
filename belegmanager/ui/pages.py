@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 import uuid
 from contextlib import contextmanager
 from datetime import date, datetime, timezone
@@ -10,7 +11,7 @@ from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from pathlib import Path
 from typing import Any, Callable
 
-from nicegui import events, ui
+from nicegui import context, events, ui
 from sqlalchemy import func, or_
 from sqlalchemy.orm import selectinload
 from sqlmodel import Session, select
@@ -28,9 +29,16 @@ from ..countries import COUNTRY_OPTION_MAP, COUNTRY_LABEL_BY_CODE, DEFAULT_CONTA
 from ..db import engine
 from ..models import Contact, ContactCategory, CostAllocation, CostSubcategory, CostType, Order, OrderItem, Project, Receipt, Supplier
 from ..schemas import AllocationInput, OrderItemInput
-from ..services.order_service import QUANTITY_STEP, order_item_total_cents, order_status_key, order_status_label, order_total_cents
+from ..services.order_service import (
+    QUANTITY_STEP,
+    order_item_total_cents,
+    order_status_key,
+    order_status_label,
+    order_total_cents,
+)
 from ..utils.storage import (
     is_supported_filename,
+    save_uploaded_invoice_logo,
     save_uploaded_order_invoice,
     save_uploaded_work_cover,
     safe_delete_file,
@@ -39,6 +47,8 @@ from ..utils.storage import (
 
 DOC_TYPE_INVOICE = "invoice"
 DOC_TYPE_CREDIT_NOTE = "credit_note"
+INVOICE_GENERATION_FEEDBACK_TIMEOUT_SECONDS = 8
+INVOICE_GENERATION_MAX_WAIT_SECONDS = 65
 LOG = logging.getLogger(__name__)
 _NAV_STATE = {
     "sidebar_expanded": True,
@@ -134,8 +144,8 @@ _HELP_CONTENT_BY_PATH: dict[str, dict[str, str]] = {
     },
     "/einstellungen": {
         "title": "Hilfe · Einstellungen",
-        "body": "Hier findest du technische Informationen zu deinem lokalen Setup wie Version, "
-        "Datenbankpfade und OCR-Standardwerte.",
+        "body": "Hier pflegst du den installweiten Rechnungssteller fuer automatische Rechnungen "
+        "und findest zusaetzlich technische Informationen zu deinem lokalen Setup.",
     },
 }
 
@@ -152,6 +162,62 @@ def _notify_error(user_message: str, exc: Exception) -> None:
     error_id = uuid.uuid4().hex[:8]
     LOG.exception("UI action failed (%s): %s", error_id, user_message)
     ui.notify(f"{user_message}. Fehler-ID: {error_id}", type="negative")
+
+
+def _notify_client(client: Any, message: str, *, type: str = "info") -> None:
+    try:
+        client.outbox.enqueue_message(
+            "notify",
+            {
+                "message": str(message),
+                "type": type,
+                "position": "bottom",
+            },
+            client.id,
+        )
+    except Exception:
+        LOG.debug("Client-Benachrichtigung konnte nicht gesendet werden", exc_info=True)
+
+
+def _run_client_javascript(client: Any, code: str) -> None:
+    try:
+        client.run_javascript(code)
+    except Exception:
+        LOG.debug("Client-JavaScript konnte nicht gesendet werden", exc_info=True)
+
+
+async def _await_client_javascript(client: Any, code: str, *, timeout: float = 1.0) -> Any | None:
+    try:
+        return await client.run_javascript(code, timeout=timeout)
+    except Exception:
+        LOG.debug("Client-JavaScript konnte nicht abgeschlossen werden", exc_info=True)
+        return None
+
+
+async def _flush_active_input(client: Any, *, settle_ms: int = 40) -> None:
+    await _await_client_javascript(
+        client,
+        """
+        (() => {
+          const active = document.activeElement;
+          if (active && typeof active.blur === 'function') {
+            active.blur();
+          }
+          return true;
+        })()
+        """,
+        timeout=1.0,
+    )
+    await asyncio.sleep(settle_ms / 1000)
+
+
+def _notify_error_with_client(client: Any, user_message: str, exc: Exception) -> None:
+    if isinstance(exc, ValueError):
+        _notify_client(client, f"{user_message}: {exc}", type="negative")
+        return
+    error_id = uuid.uuid4().hex[:8]
+    LOG.exception("UI action failed (%s): %s", error_id, user_message)
+    _notify_client(client, f"{user_message}. Fehler-ID: {error_id}", type="negative")
 
 
 def _parse_iso_date(value: str | None) -> date | None:
@@ -614,13 +680,23 @@ def _icon_option_html(label: str, icon: str) -> str:
 
 
 @contextmanager
-def _shell(active_path: str, title: str, *, show_page_head: bool = True, navigate_to: Callable[[str], Any] | None = None):
+def _shell(
+    active_path: str,
+    title: str,
+    *,
+    show_page_head: bool = True,
+    navigate_to: Callable[[str], Any] | None = None,
+    rerender_path: str | None = None,
+):
     def navigate(path: str, *, close_mobile: bool = True) -> Any:
         if close_mobile:
             _NAV_STATE["sidebar_mobile_open"] = False
         if navigate_to is not None:
             return navigate_to(path)
         return ui.navigate.to(path)
+
+    def rerender_current_shell() -> None:
+        ui.navigate.to(rerender_path or active_path)
 
     def context_class(path: str) -> str:
         if path.startswith("/belege") or path.startswith("/lieferanten") or path.startswith("/kategorien") or path.startswith(
@@ -658,17 +734,17 @@ def _shell(active_path: str, title: str, *, show_page_head: bool = True, navigat
 
     def toggle_sidebar() -> None:
         _NAV_STATE["sidebar_expanded"] = not bool(_NAV_STATE["sidebar_expanded"])
-        navigate(active_path, close_mobile=False)
+        rerender_current_shell()
 
     def close_mobile_sidebar() -> None:
         if not bool(_NAV_STATE["sidebar_mobile_open"]):
             return
         _NAV_STATE["sidebar_mobile_open"] = False
-        navigate(active_path, close_mobile=False)
+        rerender_current_shell()
 
     def toggle_mobile_sidebar() -> None:
         _NAV_STATE["sidebar_mobile_open"] = not bool(_NAV_STATE["sidebar_mobile_open"])
-        navigate(active_path, close_mobile=False)
+        rerender_current_shell()
 
     def toggle_group(group_key: str) -> None:
         next_open_groups = dict(_NAV_STATE.get("open_groups") or {})
@@ -682,20 +758,15 @@ def _shell(active_path: str, title: str, *, show_page_head: bool = True, navigat
         )
         if not group_entry:
             return
-        items = list(group_entry.get("items") or [])
-        first_path = str(items[0].get("path") or "") if items else ""
         is_open = bool(next_open_groups.get(group_key))
         if not is_open:
             next_open_groups[group_key] = True
             _NAV_STATE["open_groups"] = next_open_groups
-            if first_path:
-                navigate(first_path)
-            else:
-                navigate(active_path, close_mobile=False)
+            rerender_current_shell()
             return
         next_open_groups[group_key] = False
         _NAV_STATE["open_groups"] = next_open_groups
-        navigate(active_path, close_mobile=False)
+        rerender_current_shell()
 
     def nav_item(path: str, label: str, icon: str, *, nested: bool = False) -> None:
         active = active_path == path
@@ -1069,13 +1140,15 @@ def register_pages(services: ServiceContainer) -> None:
         return list(dict.fromkeys(missing))
 
     def open_in_new_tab(url: str) -> None:
-        ui.run_javascript(f"window.open({json.dumps(url)}, '_blank')")
+        _run_client_javascript(context.client, f"window.open({json.dumps(url)}, '_blank')")
 
     def create_dirty_guard(
         flag_name: str,
     ) -> tuple[Callable[[], None], Callable[[], None], Callable[[], bool], Callable[[str], Any], Callable[[str], Any]]:
+        client = context.client
         dirty_state = {"dirty": False}
-        ui.run_javascript(
+        _run_client_javascript(
+            client,
             f"""
             (() => {{
               const flagName = {json.dumps(flag_name)};
@@ -1099,23 +1172,24 @@ def register_pages(services: ServiceContainer) -> None:
             if dirty_state["dirty"]:
                 return
             dirty_state["dirty"] = True
-            ui.run_javascript(f"window[{json.dumps(flag_name)}] = true;")
+            _run_client_javascript(client, f"window[{json.dumps(flag_name)}] = true;")
 
         def mark_clean() -> None:
             dirty_state["dirty"] = False
-            ui.run_javascript(f"window[{json.dumps(flag_name)}] = false;")
+            _run_client_javascript(client, f"window[{json.dumps(flag_name)}] = false;")
 
         def is_dirty() -> bool:
             return dirty_state["dirty"]
 
         async def clean_and_navigate(path: str) -> None:
             dirty_state["dirty"] = False
-            await ui.run_javascript(f"window[{json.dumps(flag_name)}] = false;", timeout=30)
+            await _await_client_javascript(client, f"window[{json.dumps(flag_name)}] = false;", timeout=30)
             ui.navigate.to(path)
 
         async def guarded_navigate(path: str) -> None:
             if dirty_state["dirty"]:
-                should_leave = await ui.run_javascript(
+                should_leave = await _await_client_javascript(
+                    client,
                     "return window.confirm('Es gibt ungespeicherte Änderungen. Seite wirklich verlassen?');",
                     timeout=30,
                 )
@@ -1691,7 +1765,13 @@ def register_pages(services: ServiceContainer) -> None:
             f"atelierBuddyReceiptDirty_{rid}_{uuid.uuid4().hex}"
         )
 
-        with _shell("/belege", "Belegdetail", show_page_head=False, navigate_to=guarded_navigate):
+        with _shell(
+            "/belege",
+            "Belegdetail",
+            show_page_head=False,
+            navigate_to=guarded_navigate,
+            rerender_path=f"/belege/{rid}",
+        ):
             if rid <= 0:
                 with ui.card().classes("bm-card p-4 w-full"):
                     ui.label("Ungültige Beleg-ID")
@@ -2422,17 +2502,15 @@ def register_pages(services: ServiceContainer) -> None:
                             refresh_net_preview()
                             refresh_allocation_summary()
 
-                        gross_input.on("update:model-value", lambda _: schedule_net_preview())
-                        vat_input.on("update:model-value", lambda _: schedule_net_preview())
-                        date_input.on("update:model-value", lambda _: mark_dirty())
+                        gross_input.on_value_change(lambda _: (schedule_net_preview(), mark_dirty()))
+                        vat_input.on_value_change(lambda _: (schedule_net_preview(), mark_dirty()))
+                        date_input.on_value_change(lambda _: mark_dirty())
                         supplier_input.on_value_change(lambda _: mark_dirty())
-                        gross_input.on("update:model-value", lambda _: mark_dirty())
-                        vat_input.on("update:model-value", lambda _: mark_dirty())
-                        notes_input.on("update:model-value", lambda _: mark_dirty())
+                        notes_input.on_value_change(lambda _: mark_dirty())
                         gross_input.on("keydown.enter", lambda _: refresh_net_preview())
                         vat_input.on("keydown.enter", lambda _: refresh_net_preview())
                         gross_input.on("blur", lambda _: normalize_gross_on_blur())
-                        document_type_input.on("update:model-value", lambda _: on_document_type_change())
+                        document_type_input.on_value_change(lambda _: on_document_type_change())
                         refresh_net_preview()
 
                         def refresh_allocation_summary() -> None:
@@ -2781,6 +2859,7 @@ def register_pages(services: ServiceContainer) -> None:
                                 _notify_error("Wiederherstellung fehlgeschlagen", exc)
 
                         async def _detail_save() -> None:
+                            await _flush_active_input(client)
                             try:
                                 document_type = current_document_type()
                                 amount_gross_cents = _parse_money_to_cents(gross_input.value, allow_negative=True)
@@ -3306,7 +3385,14 @@ def register_pages(services: ServiceContainer) -> None:
             f"atelierBuddyOrderDirty_{oid}_{uuid.uuid4().hex}"
         )
 
-        with _shell("/verkaeufe", "Verkaufsdetail", show_page_head=False, navigate_to=guarded_navigate):
+        with _shell(
+            "/verkaeufe",
+            "Verkaufsdetail",
+            show_page_head=False,
+            navigate_to=guarded_navigate,
+            rerender_path=f"/verkaeufe/{oid}",
+        ):
+            client = context.client
             if oid <= 0:
                 with ui.card().classes("bm-card p-4 w-full"):
                     ui.label("Ungültige Verkaufs-ID")
@@ -3352,6 +3438,14 @@ def register_pages(services: ServiceContainer) -> None:
                 "name": (order.invoice_document_original_filename or "").strip()
                 or Path(order.invoice_document_path or "").name
                 or None,
+                "source": (order.invoice_document_source or "").strip() or None,
+            }
+            invoice_generation_state: dict[str, Any] = {
+                "running": False,
+                "stalled": False,
+                "task_id": None,
+                "started_at": None,
+                "feedback": None,
             }
 
             def current_invoice_document_url() -> str | None:
@@ -3359,6 +3453,133 @@ def register_pages(services: ServiceContainer) -> None:
 
             def current_invoice_document_name() -> str:
                 return (document_state.get("name") or "").strip() or Path(document_state.get("path") or "").name or "Rechnungsdokument"
+
+            def current_invoice_document_source_label() -> str | None:
+                source = (document_state.get("source") or "").strip().lower()
+                if source == "generated":
+                    return "Automatisch generiert"
+                if source == "uploaded":
+                    return "Manuell hochgeladen"
+                return None
+
+            def invoice_fields_locked() -> bool:
+                return bool(current_invoice_document_url())
+
+            def current_generation_blockers() -> list[str]:
+                if invoice_generation_state["running"]:
+                    return []
+                if is_deleted:
+                    return ["Gelöschte Verkäufe können nicht fakturiert werden."]
+                try:
+                    issues = services.invoice_service.collect_generation_issues(oid)
+                except Exception as exc:
+                    return [str(exc)]
+                return issues
+
+            def show_generation_feedback() -> None:
+                blockers = current_generation_blockers()
+                if blockers:
+                    document_hint_label.text = blockers[0]
+                    _notify_client(client, blockers[0], type="warning")
+                    return
+                document_hint_label.text = "Rechnung kann erzeugt werden."
+
+            def safe_invoice_ui_update(callback: Callable[[], None], *, label: str) -> None:
+                try:
+                    callback()
+                except RuntimeError:
+                    LOG.info("UI-Update '%s' wurde uebersprungen, weil die Seite nicht mehr aktiv ist.", label)
+
+            def begin_invoice_generation() -> str:
+                task_id = uuid.uuid4().hex
+                invoice_generation_state["running"] = True
+                invoice_generation_state["stalled"] = False
+                invoice_generation_state["task_id"] = task_id
+                invoice_generation_state["started_at"] = time.monotonic()
+                invoice_generation_state["feedback"] = "Rechnungs-PDF wird erzeugt ..."
+                document_hint_label.text = "Rechnungs-PDF wird erzeugt ..."
+                render_invoice_document_controls()
+                return task_id
+
+            def mark_invoice_generation_stalled(task_id: str, message: str) -> None:
+                if invoice_generation_state.get("task_id") != task_id or not invoice_generation_state["running"]:
+                    return
+                invoice_generation_state["stalled"] = True
+                invoice_generation_state["feedback"] = message
+                document_hint_label.text = message
+                render_invoice_document_controls()
+
+            def finish_invoice_generation(task_id: str) -> None:
+                if invoice_generation_state.get("task_id") != task_id:
+                    return
+                invoice_generation_state["running"] = False
+                invoice_generation_state["stalled"] = False
+                invoice_generation_state["task_id"] = None
+                invoice_generation_state["started_at"] = None
+
+            def fail_invoice_generation(task_id: str, message: str, *, notify_type: str = "negative") -> None:
+                if invoice_generation_state.get("task_id") != task_id:
+                    return
+                finish_invoice_generation(task_id)
+                invoice_generation_state["feedback"] = message
+                document_hint_label.text = message
+                render_invoice_document_controls()
+                _notify_client(client, message, type=notify_type)
+
+            async def run_invoice_generation(task_id: str) -> None:
+                try:
+                    result = await asyncio.to_thread(services.invoice_service.generate_invoice_document, oid)
+                except Exception as exc:
+                    if invoice_generation_state.get("task_id") != task_id:
+                        return
+                    def apply_generation_error_state() -> None:
+                        finish_invoice_generation(task_id)
+                        invoice_generation_state["feedback"] = None
+                        _notify_error_with_client(client, "Rechnung konnte nicht erzeugt werden", exc)
+                        render_invoice_document_controls()
+
+                    safe_invoice_ui_update(apply_generation_error_state, label="invoice-generation-error")
+                    return
+
+                if invoice_generation_state.get("task_id") != task_id:
+                    return
+
+                def apply_generation_success_state() -> None:
+                    finish_invoice_generation(task_id)
+                    invoice_generation_state["feedback"] = None
+                    document_state["path"] = result.generated_document_path
+                    document_state["name"] = Path(result.generated_document_path).name
+                    document_state["source"] = "generated"
+                    invoice_date_input.value = result.order.invoice_date.isoformat() if result.order.invoice_date else ""
+                    invoice_number_input.value = result.order.invoice_number or ""
+                    _notify_client(client, "Rechnungs-PDF erzeugt", type="positive")
+                    apply_invoice_field_lock()
+                    render_invoice_document_controls()
+                    render_item_editor()
+                    refresh_total_preview()
+                    mark_clean()
+
+                safe_invoice_ui_update(apply_generation_success_state, label="invoice-generation-success")
+
+            def poll_invoice_generation() -> None:
+                task_id = invoice_generation_state.get("task_id")
+                started_at = invoice_generation_state.get("started_at")
+                if not task_id or not invoice_generation_state["running"] or started_at is None:
+                    return
+
+                elapsed = time.monotonic() - float(started_at)
+                if elapsed >= INVOICE_GENERATION_MAX_WAIT_SECONDS:
+                    fail_invoice_generation(
+                        task_id,
+                        "PDF-Erzeugung hat zu lange gedauert und wurde abgebrochen. Bitte erneut versuchen.",
+                    )
+                    return
+
+                if elapsed >= INVOICE_GENERATION_FEEDBACK_TIMEOUT_SECONDS and not invoice_generation_state["stalled"]:
+                    mark_invoice_generation_stalled(
+                        task_id,
+                        "Die PDF-Erzeugung dauert länger als erwartet. Der Vorgang läuft noch.",
+                    )
 
             item_rows: list[dict[str, Any]] = []
             if order.items:
@@ -3388,27 +3609,32 @@ def register_pages(services: ServiceContainer) -> None:
                         order_id=oid,
                         document_path=str(new_document_path),
                         original_filename=file_upload.name,
+                        source="uploaded",
                     )
                     if old_document_path and old_document_path != str(new_document_path):
                         safe_delete_file(old_document_path)
                     document_state["path"] = str(new_document_path)
                     document_state["name"] = file_upload.name
-                    ui.notify("Rechnungsdokument gespeichert", type="positive")
+                    document_state["source"] = "uploaded"
+                    invoice_generation_state["feedback"] = None
+                    _notify_client(client, "Rechnungsdokument gespeichert", type="positive")
+                    apply_invoice_field_lock()
                     render_invoice_document_controls()
+                    render_item_editor()
                     refresh_total_preview()
                     if not was_dirty:
                         mark_clean()
                 except Exception as exc:
                     if new_document_path is not None:
                         safe_delete_file(new_document_path)
-                    _notify_error("Rechnungsdokument konnte nicht gespeichert werden", exc)
+                    _notify_error_with_client(client, "Rechnungsdokument konnte nicht gespeichert werden", exc)
 
             def open_invoice_document() -> None:
                 invoice_document_url = current_invoice_document_url()
                 if not invoice_document_url:
-                    ui.notify("Kein Rechnungsdokument vorhanden", type="warning")
+                    _notify_client(client, "Kein Rechnungsdokument vorhanden", type="warning")
                     return
-                ui.run_javascript(f"window.open({json.dumps(invoice_document_url)}, '_blank', 'noopener')")
+                _run_client_javascript(client, f"window.open({json.dumps(invoice_document_url)}, '_blank', 'noopener')")
 
             def remove_invoice_document() -> None:
                 was_dirty = is_dirty()
@@ -3417,13 +3643,17 @@ def register_pages(services: ServiceContainer) -> None:
                     safe_delete_file(old_document_path)
                     document_state["path"] = None
                     document_state["name"] = None
-                    ui.notify("Rechnungsdokument entfernt", type="positive")
+                    document_state["source"] = None
+                    invoice_generation_state["feedback"] = None
+                    _notify_client(client, "Rechnungsdokument entfernt", type="positive")
+                    apply_invoice_field_lock()
                     render_invoice_document_controls()
+                    render_item_editor()
                     refresh_total_preview()
                     if not was_dirty:
                         mark_clean()
                 except Exception as exc:
-                    _notify_error("Rechnungsdokument konnte nicht entfernt werden", exc)
+                    _notify_error_with_client(client, "Rechnungsdokument konnte nicht entfernt werden", exc)
 
             def confirm_remove_invoice_document() -> None:
                 with ui.dialog() as remove_dialog, ui.card().classes("p-4 w-[520px] max-w-full"):
@@ -3436,10 +3666,51 @@ def register_pages(services: ServiceContainer) -> None:
                             icon="delete_outline",
                             on_click=lambda: (
                                 remove_dialog.close(),
-                                remove_invoice_document(),
-                            ),
-                        ).props("color=negative")
+                            remove_invoice_document(),
+                        ),
+                    ).props("color=negative")
                 remove_dialog.open()
+
+            async def generate_invoice_document() -> None:
+                if invoice_generation_state["running"]:
+                    _notify_client(client, "Rechnungs-PDF wird bereits erzeugt ...", type="warning")
+                    return
+                await _flush_active_input(client)
+                if is_dirty():
+                    try:
+                        persist_order_from_form()
+                        mark_clean()
+                    except Exception as exc:
+                        _notify_error_with_client(client, "Verkauf konnte vor der PDF-Erzeugung nicht gespeichert werden", exc)
+                        render_invoice_document_controls()
+                        return
+                blockers = current_generation_blockers()
+                if blockers:
+                    _notify_client(client, blockers[0], type="warning")
+                    render_invoice_document_controls()
+                    return
+                task_id = begin_invoice_generation()
+                _notify_client(client, "Rechnungs-PDF wird erzeugt ...", type="info")
+                asyncio.create_task(run_invoice_generation(task_id))
+
+            def confirm_generate_invoice_document() -> None:
+                if current_invoice_document_url():
+                    with ui.dialog() as replace_dialog, ui.card().classes("p-4 w-[520px] max-w-full"):
+                        ui.label("Rechnungsdokument ersetzen?").classes("text-lg font-semibold")
+                        ui.label("Das aktuell hinterlegte Dokument wird durch eine neu erzeugte PDF ersetzt.")
+                        with ui.row().classes("w-full justify-end gap-2"):
+                            ui.button("Abbrechen", on_click=replace_dialog.close).props("flat")
+                            ui.button(
+                                "PDF erzeugen",
+                                icon="picture_as_pdf",
+                                on_click=lambda: (
+                                    replace_dialog.close(),
+                                    asyncio.create_task(generate_invoice_document()),
+                                ),
+                            ).props("color=primary")
+                    replace_dialog.open()
+                    return
+                asyncio.create_task(generate_invoice_document())
 
             category_options_map = contact_category_options()
             default_contact_category_id = next(
@@ -3500,6 +3771,48 @@ def register_pages(services: ServiceContainer) -> None:
 
                 contact_dialog.open()
 
+            def open_selected_contact() -> None:
+                contact_id = contact_input.value
+                if not isinstance(contact_id, int):
+                    _notify_client(client, "Bitte zuerst einen Kontakt auswählen.", type="warning")
+                    return
+                with Session(engine) as session:
+                    current_contact = session.get(Contact, contact_id)
+                if current_contact is None:
+                    _notify_client(client, "Der ausgewählte Kontakt wurde nicht gefunden.", type="warning")
+                    reload_contact_options()
+                    return
+
+                with ui.dialog() as contact_dialog, ui.card().classes("p-4 w-[760px] max-w-full"):
+                    ui.label("Kontakt bearbeiten").classes("text-lg font-semibold")
+                    contact_fields = build_contact_inputs(
+                        current_contact=current_contact,
+                        include_category=False,
+                        include_extended_fields=True,
+                        include_notes=False,
+                    )
+
+                    def save_contact() -> None:
+                        try:
+                            payload = contact_form_values(contact_fields)
+                            masterdata.update_contact(
+                                contact_id=current_contact.id or -1,
+                                contact_category_id=current_contact.contact_category_id,
+                                **payload,
+                            )
+                            ui.notify("Kontakt gespeichert", type="positive")
+                            reload_contact_options(selected_id=current_contact.id if isinstance(current_contact.id, int) else None)
+                            mark_dirty()
+                            contact_dialog.close()
+                        except Exception as exc:
+                            _notify_error("Kontakt konnte nicht gespeichert werden", exc)
+
+                    with ui.row().classes("w-full justify-end gap-2"):
+                        ui.button("Abbrechen", on_click=contact_dialog.close).props("flat")
+                        ui.button("Speichern", on_click=save_contact).props("color=primary")
+
+                contact_dialog.open()
+
             with ui.card().classes("bm-card p-4 w-full gap-4"):
                 with ui.row().classes("bm-detail-toolbar w-full items-center justify-between"):
                     with ui.row().classes("items-center gap-2"):
@@ -3535,6 +3848,11 @@ def register_pages(services: ServiceContainer) -> None:
                         contact_input = ui.select(contact_map, value=order.contact_id, label="Kontakt").props(
                             "use-input input-debounce=0"
                         ).classes("min-w-0 flex-1 bm-form-field")
+                        contact_edit_btn = ui.button(
+                            icon="edit",
+                            on_click=open_selected_contact,
+                        ).props("flat").classes("bm-inline-create-btn")
+                        contact_edit_btn.tooltip("Aktuellen Kontakt im Pop-out öffnen")
                         contact_add_btn = ui.button(
                             icon="add",
                             on_click=open_quick_contact_dialog,
@@ -3593,15 +3911,34 @@ def register_pages(services: ServiceContainer) -> None:
 
                 def render_invoice_document_controls() -> None:
                     invoice_document_url = current_invoice_document_url()
+                    blockers = current_generation_blockers()
+                    generation_running = bool(invoice_generation_state["running"])
+                    generation_stalled = bool(invoice_generation_state["stalled"])
                     document_actions_container.clear()
                     with document_actions_container:
+                        if not is_deleted:
+                            generate_document_btn = ui.button(
+                                icon="hourglass_top" if generation_running else "picture_as_pdf",
+                                on_click=(
+                                    lambda: _notify_client(client, "Die Rechnungs-PDF wird bereits erzeugt.", type="warning")
+                                    if generation_running
+                                    else confirm_generate_invoice_document()
+                                ),
+                            ).props("flat round dense").classes("bm-icon-action-btn bm-icon-action-btn--primary")
+                            generate_document_btn.tooltip(
+                                "PDF-Erzeugung läuft" if generation_running else "PDF erzeugen"
+                            )
+                            if generation_running:
+                                generate_document_btn.disable()
                         if invoice_document_url:
                             view_document_btn = ui.button(
                                 icon="visibility",
                                 on_click=open_invoice_document,
                             ).props("flat round dense").classes("bm-icon-action-btn")
                             view_document_btn.tooltip("Dokument anzeigen")
-                        if not is_deleted and not invoice_document_url:
+                            if generation_running:
+                                view_document_btn.disable()
+                        if not is_deleted:
                             document_upload = ui.upload(
                                 multiple=False,
                                 auto_upload=True,
@@ -3613,19 +3950,36 @@ def register_pages(services: ServiceContainer) -> None:
                                 icon="upload_file",
                                 on_click=lambda: document_upload.run_method("pickFiles"),
                             ).props("flat round dense").classes("bm-icon-action-btn")
-                            upload_btn.tooltip("Dokument hochladen")
+                            upload_btn.tooltip("Dokument hochladen oder ersetzen")
+                            if generation_running:
+                                upload_btn.disable()
                         if invoice_document_url and not is_deleted:
                             remove_document_btn = ui.button(
                                 icon="delete_outline",
                                 on_click=confirm_remove_invoice_document,
                             ).props("flat round dense").classes("bm-icon-action-btn bm-icon-action-btn--danger")
                             remove_document_btn.tooltip("Dokument entfernen")
+                            if generation_running:
+                                remove_document_btn.disable()
 
-                    document_hint_label.text = (
-                        f"Hochgeladen: {current_invoice_document_name()}"
-                        if invoice_document_url
-                        else "Noch kein Rechnungsdokument hinterlegt."
-                    )
+                    source_label = current_invoice_document_source_label()
+                    if generation_running and generation_stalled:
+                        document_hint_label.text = invoice_generation_state.get("feedback") or (
+                            "Die PDF-Erzeugung dauert länger als erwartet. Der Vorgang läuft noch."
+                        )
+                    elif generation_running:
+                        document_hint_label.text = invoice_generation_state.get("feedback") or "Rechnungs-PDF wird erzeugt ..."
+                    elif invoice_generation_state.get("feedback"):
+                        document_hint_label.text = str(invoice_generation_state["feedback"])
+                    elif invoice_document_url:
+                        if source_label:
+                            document_hint_label.text = f"{source_label}: {current_invoice_document_name()}"
+                        else:
+                            document_hint_label.text = f"Hinterlegt: {current_invoice_document_name()}"
+                    elif blockers:
+                        document_hint_label.text = blockers[0]
+                    else:
+                        document_hint_label.text = "Noch kein Rechnungsdokument hinterlegt."
 
                 def parse_row_total_cents(row: dict[str, Any]) -> int | None:
                     try:
@@ -3683,7 +4037,34 @@ def register_pages(services: ServiceContainer) -> None:
                     else:
                         head_project_input.enable()
 
+                def apply_contact_action_state() -> None:
+                    if isinstance(contact_input.value, int):
+                        contact_edit_btn.enable()
+                    else:
+                        contact_edit_btn.disable()
+
+                def apply_invoice_field_lock() -> None:
+                    locked = invoice_fields_locked() or is_deleted
+                    if locked:
+                        contact_input.disable()
+                        contact_add_btn.disable()
+                        sale_date_input.disable()
+                        invoice_date_input.disable()
+                        invoice_number_input.disable()
+                        project_mode_input.disable()
+                        head_project_input.disable()
+                    else:
+                        contact_input.enable()
+                        contact_add_btn.enable()
+                        sale_date_input.enable()
+                        invoice_date_input.enable()
+                        invoice_number_input.enable()
+                        project_mode_input.enable()
+                        apply_project_mode_visibility()
+                    apply_contact_action_state()
+
                 def render_item_row(row: dict[str, Any]) -> None:
+                    locked = invoice_fields_locked() or is_deleted
                     with ui.card().classes("bm-card p-3 w-full"):
                         with ui.row().classes("w-full items-end gap-3 wrap bm-form-row"):
                             description_input = ui.input("Bezeichnung", value=row.get("description") or "").classes(
@@ -3709,6 +4090,12 @@ def register_pages(services: ServiceContainer) -> None:
                                 on_click=lambda current=row: remove_row(current),
                             ).props("flat round color=negative")
                             remove_button.tooltip("Position entfernen")
+                        if locked:
+                            description_input.disable()
+                            quantity_input.disable()
+                            unit_price_input.disable()
+                            project_input.disable()
+                            remove_button.disable()
 
                         project_input.classes(remove="hidden")
                         if not bool(project_mode_input.value):
@@ -3720,14 +4107,14 @@ def register_pages(services: ServiceContainer) -> None:
                                 _format_cents(total_cents, settings.default_currency) if total_cents is not None else "-"
                             )
 
-                        def on_description_change() -> None:
+                        def on_description_change(value: Any) -> None:
                             mark_dirty()
-                            row["description"] = description_input.value or ""
+                            row["description"] = str(value or "")
                             refresh_total_preview()
 
-                        def on_quantity_change() -> None:
+                        def on_quantity_change(value: Any) -> None:
                             mark_dirty()
-                            row["quantity_text"] = quantity_input.value or ""
+                            row["quantity_text"] = str(value or "")
                             update_total_label()
                             refresh_total_preview()
 
@@ -3741,9 +4128,9 @@ def register_pages(services: ServiceContainer) -> None:
                             update_total_label()
                             refresh_total_preview()
 
-                        def on_unit_price_change() -> None:
+                        def on_unit_price_change(value: Any) -> None:
                             mark_dirty()
-                            row["unit_price_text"] = unit_price_input.value or ""
+                            row["unit_price_text"] = str(value or "")
                             update_total_label()
                             refresh_total_preview()
 
@@ -3760,17 +4147,17 @@ def register_pages(services: ServiceContainer) -> None:
                             update_total_label()
                             refresh_total_preview()
 
-                        def on_project_change() -> None:
+                        def on_project_change(value: Any) -> None:
                             mark_dirty()
-                            row["project_id"] = int(project_input.value) if project_input.value else None
+                            row["project_id"] = int(value) if value else None
                             refresh_total_preview()
 
-                        description_input.on("update:model-value", lambda _: on_description_change())
-                        quantity_input.on("update:model-value", lambda _: on_quantity_change())
+                        description_input.on_value_change(lambda e: on_description_change(e.value))
+                        quantity_input.on_value_change(lambda e: on_quantity_change(e.value))
                         quantity_input.on("blur", lambda _: normalize_quantity_on_blur())
-                        unit_price_input.on("update:model-value", lambda _: on_unit_price_change())
+                        unit_price_input.on_value_change(lambda e: on_unit_price_change(e.value))
                         unit_price_input.on("blur", lambda _: normalize_unit_price_on_blur())
-                        project_input.on_value_change(lambda _: on_project_change())
+                        project_input.on_value_change(lambda e: on_project_change(e.value))
                         update_total_label()
 
                 def render_item_editor() -> None:
@@ -3778,18 +4165,24 @@ def register_pages(services: ServiceContainer) -> None:
                     with item_editor:
                         with ui.row().classes("w-full items-center justify-between"):
                             ui.label("Positionen").classes("text-sm font-semibold")
-                            ui.button("Position hinzufügen", icon="add", on_click=lambda: add_row()).props("flat")
+                            add_button = ui.button("Position hinzufügen", icon="add", on_click=lambda: add_row()).props("flat")
+                            if invoice_fields_locked() or is_deleted:
+                                add_button.disable()
 
                         for row in item_rows:
                             render_item_row(row)
 
                 def add_row() -> None:
+                    if invoice_fields_locked() or is_deleted:
+                        return
                     mark_dirty()
                     item_rows.append({"description": "", "quantity_text": "1", "unit_price_text": "", "project_id": None})
                     render_item_editor()
                     refresh_total_preview()
 
                 def remove_row(row: dict[str, Any]) -> None:
+                    if invoice_fields_locked() or is_deleted:
+                        return
                     mark_dirty()
                     if len(item_rows) == 1:
                         item_rows[0] = {"description": "", "quantity_text": "1", "unit_price_text": "", "project_id": None}
@@ -3824,21 +4217,24 @@ def register_pages(services: ServiceContainer) -> None:
                         )
                     return payload
 
-                async def _save_order() -> None:
+                def persist_order_from_form() -> Order:
                     contact_id = contact_input.value
                     if not isinstance(contact_id, int):
-                        ui.notify("Kontakt fehlt", type="negative")
-                        return
+                        raise ValueError("Kontakt fehlt")
+                    return services.order_service.save_order(
+                        order_id=oid,
+                        contact_id=contact_id,
+                        sale_date=_parse_iso_date(sale_date_input.value),
+                        invoice_date=_parse_iso_date(invoice_date_input.value),
+                        invoice_number=invoice_number_input.value,
+                        notes=notes_input.value,
+                        items=build_item_payload(),
+                    )
+
+                async def _save_order() -> None:
+                    await _flush_active_input(client)
                     try:
-                        saved = services.order_service.save_order(
-                            order_id=oid,
-                            contact_id=contact_id,
-                            sale_date=_parse_iso_date(sale_date_input.value),
-                            invoice_date=_parse_iso_date(invoice_date_input.value),
-                            invoice_number=invoice_number_input.value,
-                            notes=notes_input.value,
-                            items=build_item_payload(),
-                        )
+                        persist_order_from_form()
                     except Exception as exc:
                         _notify_error("Verkauf konnte nicht gespeichert werden", exc)
                         return
@@ -3864,7 +4260,7 @@ def register_pages(services: ServiceContainer) -> None:
                     await clean_and_navigate(f"/verkaeufe/{oid}")
 
                 def apply_head_project() -> None:
-                    if bool(project_mode_input.value):
+                    if bool(project_mode_input.value) or invoice_fields_locked() or is_deleted:
                         return
                     mark_dirty()
                     selected_project_id = head_project_input.value
@@ -3874,6 +4270,9 @@ def register_pages(services: ServiceContainer) -> None:
                     refresh_total_preview()
 
                 def on_project_mode_change() -> None:
+                    if invoice_fields_locked() or is_deleted:
+                        apply_invoice_field_lock()
+                        return
                     mark_dirty()
                     apply_project_mode_visibility()
                     render_item_editor()
@@ -3881,16 +4280,18 @@ def register_pages(services: ServiceContainer) -> None:
 
                 head_project_input.value = _common_project_id_from_rows(item_rows)
                 head_project_input.on_value_change(lambda _: apply_head_project())
-                project_mode_input.on("update:model-value", lambda _: on_project_mode_change())
-                contact_input.on_value_change(lambda _: mark_dirty())
-                sale_date_input.on("update:model-value", lambda _: mark_dirty())
-                notes_input.on("update:model-value", lambda _: mark_dirty())
-                invoice_date_input.on("update:model-value", lambda _: (mark_dirty(), refresh_total_preview()))
-                invoice_number_input.on("update:model-value", lambda _: (mark_dirty(), refresh_total_preview()))
-                apply_project_mode_visibility()
+                project_mode_input.on_value_change(lambda _: on_project_mode_change())
+                contact_input.on_value_change(lambda _: (mark_dirty(), apply_contact_action_state()))
+                sale_date_input.on_value_change(lambda _: mark_dirty())
+                notes_input.on_value_change(lambda _: mark_dirty())
+                invoice_date_input.on_value_change(lambda _: (mark_dirty(), refresh_total_preview()))
+                invoice_number_input.on_value_change(lambda _: (mark_dirty(), refresh_total_preview()))
+                apply_contact_action_state()
+                apply_invoice_field_lock()
                 render_invoice_document_controls()
                 render_item_editor()
                 refresh_total_preview()
+                ui.timer(1.0, poll_invoice_generation)
                 mark_clean()
 
     @ui.page("/projekte")
@@ -4090,7 +4491,7 @@ def register_pages(services: ServiceContainer) -> None:
             f"atelierBuddyProjectDirty_{pid}_{uuid.uuid4().hex}"
         )
 
-        with _shell("/projekte", "Projektdetail", navigate_to=guarded_navigate):
+        with _shell("/projekte", "Projektdetail", navigate_to=guarded_navigate, rerender_path=f"/projekte/{pid}"):
             if pid <= 0:
                 with ui.card().classes("bm-card p-4 w-full"):
                     ui.label("Ungültige Projekt-ID")
@@ -4178,6 +4579,7 @@ def register_pages(services: ServiceContainer) -> None:
                             ui.button("Speichern", on_click=lambda: _save_project()).props("color=primary")
 
                         async def _save_project() -> None:
+                            await _flush_active_input(context.client)
                             name = (name_input.value or "").strip()
                             if not name:
                                 ui.notify("Projektname fehlt", type="negative")
@@ -4210,7 +4612,13 @@ def register_pages(services: ServiceContainer) -> None:
             f"atelierBuddyContactDirty_{page_key}_{uuid.uuid4().hex}"
         )
 
-        with _shell("/kontakte", "Kontaktdetail", show_page_head=False, navigate_to=guarded_navigate):
+        with _shell(
+            "/kontakte",
+            "Kontaktdetail",
+            show_page_head=False,
+            navigate_to=guarded_navigate,
+            rerender_path="/kontakte/neu" if contact_id is None else f"/kontakte/{contact_id}",
+        ):
             current_contact: Contact | None = None
             if contact_id is not None:
                 with Session(engine) as session:
@@ -4280,6 +4688,7 @@ def register_pages(services: ServiceContainer) -> None:
                 mark_clean()
 
                 async def save_contact() -> None:
+                    await _flush_active_input(context.client)
                     category_id = contact_fields["contact_category_id"].value
                     if not isinstance(category_id, int):
                         ui.notify("Kontaktkategorie fehlt", type="negative")
@@ -5595,6 +6004,216 @@ def register_pages(services: ServiceContainer) -> None:
         from ..versioning import get_app_version
 
         with _shell("/einstellungen", "Einstellungen"):
+            invoice_profile = services.invoice_service.get_profile()
+            logo_state: dict[str, str | None] = {"path": invoice_profile.logo_path}
+            logo_preview_container: Any = None
+            logo_actions_container: Any = None
+            logo_hint_label: Any = None
+            invoice_settings_expanded = {"value": False}
+            invoice_settings_toggle_btn: Any = None
+            invoice_settings_panel: Any = None
+
+            def current_logo_url() -> str | None:
+                return to_files_url(logo_state.get("path"))
+
+            def open_logo() -> None:
+                logo_url = current_logo_url()
+                if not logo_url:
+                    ui.notify("Kein Logo hinterlegt", type="warning")
+                    return
+                open_in_new_tab(logo_url)
+
+            async def handle_logo_upload(event: events.MultiUploadEventArguments) -> None:
+                if not event.files:
+                    return
+                file_upload = event.files[0]
+                new_logo_path: Path | None = None
+                try:
+                    new_logo_path = await save_uploaded_invoice_logo(file_upload)
+                    previous_logo_path = logo_state.get("path")
+                    services.invoice_service.set_logo_path(str(new_logo_path))
+                    if previous_logo_path and previous_logo_path != str(new_logo_path):
+                        safe_delete_file(previous_logo_path)
+                    logo_state["path"] = str(new_logo_path)
+                    render_logo_controls()
+                    ui.notify("Logo gespeichert", type="positive")
+                except Exception as exc:
+                    if new_logo_path is not None:
+                        safe_delete_file(new_logo_path)
+                    _notify_error("Logo konnte nicht gespeichert werden", exc)
+
+            def remove_logo() -> None:
+                try:
+                    old_logo_path = services.invoice_service.clear_logo_path()
+                    safe_delete_file(old_logo_path)
+                    logo_state["path"] = None
+                    render_logo_controls()
+                    ui.notify("Logo entfernt", type="positive")
+                except Exception as exc:
+                    _notify_error("Logo konnte nicht entfernt werden", exc)
+
+            def render_logo_controls() -> None:
+                logo_preview_container.clear()
+                with logo_preview_container:
+                    logo_url = current_logo_url()
+                    if logo_url:
+                        ui.image(logo_url).classes("max-w-[260px] max-h-24 object-contain self-start")
+                    else:
+                        ui.label("Noch kein Logo hinterlegt.").classes("text-sm text-slate-600")
+
+                logo_actions_container.clear()
+                with logo_actions_container:
+                    if current_logo_url():
+                        view_logo_btn = ui.button(icon="visibility", on_click=open_logo).props("flat round dense")
+                        view_logo_btn.tooltip("Logo anzeigen")
+                    logo_upload = ui.upload(
+                        multiple=False,
+                        auto_upload=True,
+                        on_multi_upload=handle_logo_upload,
+                        label="",
+                    ).classes("bm-hidden-upload")
+                    logo_upload.props("accept=.jpg,.jpeg,.png,.heic,.heif")
+                    upload_logo_btn = ui.button(
+                        icon="upload_file",
+                        on_click=lambda: logo_upload.run_method("pickFiles"),
+                    ).props("flat round dense")
+                    upload_logo_btn.tooltip("Logo hochladen oder ersetzen")
+                    if current_logo_url():
+                        remove_logo_btn = ui.button(icon="delete_outline", on_click=remove_logo).props(
+                            "flat round dense color=negative"
+                        )
+                        remove_logo_btn.tooltip("Logo entfernen")
+
+                logo_hint_label.text = "Empfohlen: PNG mit transparentem Hintergrund mit ca. 1000 x 300 px."
+
+            def render_invoice_settings_visibility() -> None:
+                expanded = bool(invoice_settings_expanded["value"])
+                invoice_settings_panel.set_visibility(expanded)
+                invoice_settings_toggle_btn.text = (
+                    "Eigene Rechnungsdaten ausblenden" if expanded else "Eigene Rechnungsdaten bearbeiten"
+                )
+                invoice_settings_toggle_btn.icon = "expand_less" if expanded else "edit"
+
+            with ui.card().classes("bm-card p-4 w-full gap-4"):
+                ui.label("Rechnungssteller & Rechnung").classes("text-lg font-semibold")
+                ui.label(
+                    "Diese Daten werden installweit fuer automatisch erzeugte Rechnungen verwendet."
+                ).classes("text-sm text-slate-600")
+                invoice_settings_toggle_btn = ui.button("").props("outline no-caps").classes("self-start")
+                invoice_settings_toggle_btn.on(
+                    "click",
+                    lambda _: (
+                        invoice_settings_expanded.__setitem__("value", not invoice_settings_expanded["value"]),
+                        render_invoice_settings_visibility(),
+                    ),
+                )
+
+                with ui.column().classes("w-full gap-4") as invoice_settings_panel:
+                    with ui.row().classes("w-full gap-3 wrap bm-form-row"):
+                        display_name_input = ui.input("Anzeigename / Firma", value=invoice_profile.display_name or "").classes(
+                            "flex-1 min-w-[280px] bm-form-field"
+                        )
+                        payment_term_days_input = ui.input(
+                            "Standard-Zahlungsziel (Tage)",
+                            value="" if invoice_profile.payment_term_days is None else str(invoice_profile.payment_term_days),
+                        ).props("type=number min=1 max=365").classes("w-56 bm-form-field")
+
+                    with ui.card().classes("bm-card p-4 w-full gap-3"):
+                        ui.label("Adresse").classes("text-base font-semibold")
+                        with ui.row().classes("w-full gap-3 wrap bm-form-row"):
+                            street_input = ui.input("Straße", value=invoice_profile.street or "").classes(
+                                "flex-1 min-w-[240px] bm-form-field"
+                            )
+                            house_number_input = ui.input("Hausnummer", value=invoice_profile.house_number or "").classes(
+                                "w-36 bm-form-field"
+                            )
+                        with ui.row().classes("w-full gap-3 wrap bm-form-row"):
+                            address_extra_input = ui.input("Adresszusatz", value=invoice_profile.address_extra or "").classes(
+                                "w-full bm-form-field"
+                            )
+                        with ui.row().classes("w-full gap-3 wrap bm-form-row"):
+                            postal_code_input = ui.input("PLZ", value=invoice_profile.postal_code or "").classes("w-40 bm-form-field")
+                            city_input = ui.input("Ort", value=invoice_profile.city or "").classes(
+                                "flex-1 min-w-[220px] bm-form-field"
+                            )
+                        country_input = ui.select(
+                            country_options(),
+                            value=(invoice_profile.country or DEFAULT_CONTACT_COUNTRY_CODE).strip().upper(),
+                            label="Land",
+                        ).props("use-input input-debounce=0").classes("w-full bm-form-field")
+
+                    with ui.card().classes("bm-card p-4 w-full gap-3"):
+                        ui.label("Kontakt & Steuer").classes("text-base font-semibold")
+                        with ui.row().classes("w-full gap-3 wrap bm-form-row"):
+                            email_input = ui.input("E-Mail (optional)", value=invoice_profile.email or "").classes(
+                                "flex-1 min-w-[220px] bm-form-field"
+                            )
+                            phone_input = ui.input("Telefon (optional)", value=invoice_profile.phone or "").classes(
+                                "flex-1 min-w-[220px] bm-form-field"
+                            )
+                        website_input = ui.input("Website (optional)", value=invoice_profile.website or "").classes(
+                            "w-full bm-form-field"
+                        )
+                        tax_id_type_input = ui.toggle(
+                            {"tax_number": "Steuernummer", "vat_id": "USt-IdNr."},
+                            value=(invoice_profile.tax_id_type or "tax_number").strip().lower(),
+                        ).props("unelevated no-caps").classes("bm-view-mode-btn bm-doc-type-toggle bm-form-field")
+                        tax_id_value_input = ui.input("Kennzeichen", value=invoice_profile.tax_id_value or "").classes(
+                            "w-full bm-form-field"
+                        )
+
+                    with ui.card().classes("bm-card p-4 w-full gap-3"):
+                        ui.label("Bankverbindung & Logo").classes("text-base font-semibold")
+                        with ui.row().classes("w-full gap-3 wrap bm-form-row"):
+                            bank_account_holder_input = ui.input(
+                                "Kontoinhaber",
+                                value=invoice_profile.bank_account_holder or "",
+                            ).classes("flex-1 min-w-[220px] bm-form-field")
+                            iban_input = ui.input("IBAN", value=invoice_profile.iban or "").classes(
+                                "flex-1 min-w-[220px] bm-form-field"
+                            )
+                        with ui.row().classes("w-full gap-3 wrap bm-form-row"):
+                            bic_input = ui.input("BIC", value=invoice_profile.bic or "").classes("w-56 bm-form-field")
+                        with ui.column().classes("w-full gap-2"):
+                            ui.label("Logo").classes("text-sm font-semibold")
+                            with ui.row().classes("w-full items-start justify-between gap-3 wrap"):
+                                logo_preview_container = ui.column().classes("min-w-[260px] flex-[1_1_280px] gap-2")
+                                logo_actions_container = ui.row().classes("items-center gap-1")
+                            logo_hint_label = ui.label("").classes("text-xs text-slate-600")
+                            render_logo_controls()
+
+                async def save_invoice_profile() -> None:
+                    await _flush_active_input(context.client)
+                    try:
+                        services.invoice_service.update_profile(
+                            display_name=display_name_input.value,
+                            street=street_input.value,
+                            house_number=house_number_input.value,
+                            address_extra=address_extra_input.value,
+                            postal_code=postal_code_input.value,
+                            city=city_input.value,
+                            country=country_input.value,
+                            email=email_input.value,
+                            phone=phone_input.value,
+                            website=website_input.value,
+                            tax_id_type=tax_id_type_input.value,
+                            tax_id_value=tax_id_value_input.value,
+                            bank_account_holder=bank_account_holder_input.value,
+                            iban=iban_input.value,
+                            bic=bic_input.value,
+                            payment_term_days=payment_term_days_input.value,
+                        )
+                    except Exception as exc:
+                        _notify_error("Rechnungssteller konnte nicht gespeichert werden", exc)
+                        return
+                    ui.notify("Rechnungssteller gespeichert", type="positive")
+
+                with ui.row().classes("w-full justify-end"):
+                    ui.button("Rechnungssteller speichern", icon="save", on_click=save_invoice_profile).props(
+                        "color=primary"
+                    )
+                render_invoice_settings_visibility()
+
             with ui.card().classes("bm-card p-4 w-full"):
                 ui.label("Version & Rechtliches").classes("text-lg font-semibold")
                 ui.label(f"App-Version: {get_app_version()}")
@@ -5758,6 +6377,7 @@ def register_pages(services: ServiceContainer) -> None:
                 ui.label("Lokales Setup").classes("text-lg font-semibold mt-2")
                 ui.label(f"Datenbank: {settings.db_path}")
                 ui.label(f"Archiv: {settings.archive_dir}")
+                ui.label(f"Rechnungsassets: {settings.invoice_assets_dir}")
                 ui.label(f"Projekt-Cover: {settings.works_cover_dir}")
                 ui.label(f"OCR-Sprachen: {settings.ocr_languages}")
                 ui.label(f"Währung (Default): {settings.default_currency}")
