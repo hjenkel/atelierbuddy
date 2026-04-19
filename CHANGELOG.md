@@ -9,6 +9,8 @@ Das Format orientiert sich an Keep a Changelog, und dieses Projekt folgt Semanti
 - Beleg-Speicherflow vereinheitlicht: Belege lassen sich nun auch bei noch unvollständigen Pflichtangaben speichern, ohne dass Zuordnungsentwürfe verloren gehen.
 - Vollständigkeit von Belegen und Kostenzuordnungen wird jetzt zentral berechnet; nur vollständige Zuordnungen gelten als `posted` und fließen in fachliche Auswertungen ein.
 - Detailansicht für Belege aktualisiert: Live-Vollständigkeitsanzeige, stabilerer Speichern-Handler und Rücknavigation zur Herkunftsseite nach dem Speichern.
+- Mobile Unterstützung für Projekt-, Kategorie- und Anbieteransichten sowie verbesserte Aktionsmenüs ergänzt.
+- Sidebar-Anzeige auf Mobilgeräten bei bestimmten Zuständen korrigiert.
 
 ## [0.3.2] - 2026-04-18
 ### Hinzugefügt
