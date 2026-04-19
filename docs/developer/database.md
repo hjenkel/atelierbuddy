@@ -1,7 +1,7 @@
 # Datenbankstruktur
 
 Quelle: `belegmanager/models.py`, `belegmanager/db.py`, `belegmanager/fts.py`  
-Version-Single-Source: `pyproject.toml` (`0.3.2`)
+Version-Single-Source: `pyproject.toml` (`0.3.3`)
 
 ## Überblick
 Atelier Buddy nutzt SQLite mit SQLModel/SQLAlchemy. Das Datenmodell ist auf lokale Nutzung, überschaubare Betriebsgröße und schnelle Iteration ausgelegt.
@@ -39,6 +39,12 @@ Belegkopf mit Dokumentpfaden, OCR-Text, Belegdatum, Bruttobetrag, USt, Netto, Ty
 ### `cost_allocation`
 Zuordnungszeilen für Ausgaben. Diese Tabelle ist die fachliche Wahrheit für Kostenkategorie, Unterkategorie, optionales Projekt, optionale technische Kostenstelle und Betrag.
 
+Seit `0.3.3` trägt jede Zuordnungszeile zusätzlich einen Wirksamkeitsstatus:
+- `draft` für gespeicherte, aber noch unvollständige oder fachlich nicht vollständig publizierbare Entwürfe
+- `posted` für vollständige, offiziell wirksame Ausgaben
+
+`cost_type_id` ist dafür nullable, damit auch unvollständige Entwurfszeilen ohne Dummy-Werte persistiert werden können.
+
 ### `sales_order`
 Verkaufskopf mit:
 - interner Verkaufsnummer
@@ -51,7 +57,7 @@ Verkaufskopf mit:
 - Soft-Delete
 
 In v0.2 gibt es kein separates Rechnungsobjekt. Verkauf und Ausgangsrechnung sind derselbe Datensatz; die Rechnungsdatei hängt direkt am Verkauf.
-Auch in `0.3.2` bleibt dieses Modell bewusst bestehen: automatische PDF-Erzeugung und manueller Upload arbeiten direkt auf demselben Dokument-Slot des Verkaufs.
+Auch in `0.3.3` bleibt dieses Modell bewusst bestehen: automatische PDF-Erzeugung und manueller Upload arbeiten direkt auf demselben Dokument-Slot des Verkaufs.
 
 ### `invoice_profile`
 Installweites Singleton für automatisch erzeugte Rechnungen mit:

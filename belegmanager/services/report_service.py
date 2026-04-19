@@ -8,6 +8,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import selectinload
 from sqlmodel import Session, select
 
+from ..constants import COST_ALLOCATION_STATUS_POSTED
 from ..db import engine
 from ..models import CostAllocation, CostSubcategory, CostType, Order, OrderItem, Receipt
 from ..schemas import (
@@ -46,7 +47,10 @@ class ReportService:
                     func.coalesce(func.sum(CostAllocation.amount_cents), 0).label("total_cents"),
                 )
                 .join(CostType, CostType.id == CostAllocation.cost_type_id)
-                .where(CostAllocation.receipt_id.in_(select(valid_receipt_ids_stmt.c.receipt_id)))
+                .where(
+                    CostAllocation.receipt_id.in_(select(valid_receipt_ids_stmt.c.receipt_id)),
+                    CostAllocation.status == COST_ALLOCATION_STATUS_POSTED,
+                )
                 .group_by(CostAllocation.cost_type_id, CostType.name)
                 .order_by(func.abs(func.coalesce(func.sum(CostAllocation.amount_cents), 0)).desc(), CostType.name.asc())
             ).all()
@@ -88,6 +92,7 @@ class ReportService:
                 .where(
                     CostAllocation.receipt_id.in_(select(valid_receipt_ids_stmt.c.receipt_id)),
                     CostAllocation.cost_type_id == cost_type_id,
+                    CostAllocation.status == COST_ALLOCATION_STATUS_POSTED,
                 )
                 .group_by(CostAllocation.cost_subcategory_id, CostSubcategory.name)
                 .order_by(
@@ -172,7 +177,11 @@ class ReportService:
             .where(
                 Receipt.deleted_at.is_(None),
                 Receipt.doc_date.is_not(None),
+                Receipt.supplier_id.is_not(None),
                 Receipt.amount_gross_cents.is_not(None),
+                Receipt.vat_rate_percent.is_not(None),
+                Receipt.amount_net_cents.is_not(None),
+                CostAllocation.status == COST_ALLOCATION_STATUS_POSTED,
             )
             .group_by(Receipt.id, Receipt.amount_gross_cents)
             .having(func.count(CostAllocation.id) > 0)

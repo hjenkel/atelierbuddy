@@ -1,7 +1,7 @@
 # Berechnungen und Validierung
 
 Quelle: `belegmanager/ui/pages.py`, `belegmanager/services/receipt_service.py`, `belegmanager/services/cost_allocation_service.py`, `belegmanager/services/order_service.py`, `belegmanager/services/report_service.py`  
-Version-Single-Source: `pyproject.toml` (`0.3.2`)
+Version-Single-Source: `pyproject.toml` (`0.3.3`)
 
 ## Geldwerte und Parsing
 Geld wird als Integer-Cents gespeichert.
@@ -21,12 +21,12 @@ Zentrale Formel:
 - `net = gross / (1 + vat_rate/100)`
 
 Implementierung:
-- `ReceiptService._calculate_net_cents(...)`
+- `ReceiptService._compute_net_cents(...)`
 
 Regeln:
 - Rundung auf ganze Cents mit `ROUND_HALF_UP`
 - wenn Brutto leer ist, werden Brutto/USt/Netto gemeinsam geleert
-- wenn kein USt-Satz gesetzt ist, wird der konfigurierbare Default verwendet
+- wenn kein USt-Satz gesetzt ist, bleibt Netto im Persistenzpfad leer
 
 ## Belegtyp und Vorzeichen
 `document_type`:
@@ -41,7 +41,14 @@ Warum:
 - Vorzeichenkonsistenz ist zentral für korrekte Auswertungen und robuste Datenintegrität
 
 ## Kostenzuordnungen
-Pflichtregeln:
+Die Vollständigkeit wird zentral über `ReceiptCompletionService` bewertet.
+
+Regeln für gespeicherte Entwürfe (`draft`):
+- Zuordnungszeilen dürfen unvollständig sein
+- `cost_type_id` darf leer bleiben
+- Betrag `0` ist nur für unvollständige Entwürfe tolerierbar
+
+Regeln für veröffentlichte Zuordnungen (`posted`):
 - mindestens eine Zuordnungszeile
 - jede Zeile braucht Kostenkategorie und Unterkategorie
 - der Zeilenbetrag darf nicht `0` sein
@@ -53,7 +60,7 @@ Spezialfall ohne Projekt:
 
 Warum:
 - `cost_allocation` ist die fachliche Wahrheit für Ausgaben
-- nur so bleiben Splits und Reports konsistent
+- nur `posted`-Zeilen gehen in Reports und fachliche Sperrprüfungen ein
 
 ## Verkäufe und Positionssummen
 Verkäufe speichern Geldbeträge als Integer-Cents und Mengen als `Decimal(12,3)`.

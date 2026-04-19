@@ -1,7 +1,7 @@
 # Prozesse und Flows
 
-Quelle: `belegmanager/services/*`, `belegmanager/ui/pages.py`, `belegmanager/app_state.py`  
-Version-Single-Source: `pyproject.toml` (`0.3.2`)
+Quelle: `belegmanager/services/*`, `belegmanager/ui/pages.py`, `belegmanager/app_state.py`, `belegmanager/receipt_completion.py`  
+Version-Single-Source: `pyproject.toml` (`0.3.3`)
 
 ## Service-Architektur
 `app_state.get_services()` baut einen gemeinsamen Service-Container mit:
@@ -40,12 +40,17 @@ Beim App-Start:
 ## Flow 2: Beleg bearbeiten und speichern
 1. Die Belegdetailseite lädt Beleg, Stammdaten und bestehende Zuordnungen.
 2. Beim Speichern:
-   - `ReceiptService.update_metadata(...)` speichert Kopf- und Betragsdaten
-   - `CostAllocationService.save_allocations(...)` ersetzt die Zuordnungen transaktional
-3. Harte Regeln:
+   - `ReceiptService.save_detail(...)` speichert Kopf-, Betrags- und Zuordnungsdaten in einem gemeinsamen Flow
+   - `ReceiptCompletionService` bewertet Vollständigkeit und fehlende Pflichtangaben zentral
+   - `CostAllocationService.replace_allocations(...)` persistiert die Zuordnungen mit Status `draft` oder `posted`
+3. Fachliche Regeln:
+   - Belegdaten dürfen auch unvollständig gespeichert werden
+   - nur vollständig bewertete Belege publizieren ihre Zuordnungen als `posted`
+   - unvollständige Zuordnungen bleiben als `draft` erhalten und gehen beim Speichern nicht verloren
+4. Harte Regeln für `posted`:
    - Typ und Vorzeichen müssen zusammenpassen
    - Zuordnungssumme muss exakt dem Bruttobetrag entsprechen
-   - jede Zuordnungszeile braucht Kostenkategorie und Unterkategorie
+   - jede veröffentlichte Zuordnungszeile braucht Kostenkategorie und Unterkategorie
 
 ## Flow 3: Verkauf anlegen und speichern
 1. Ein neuer Verkauf wird mit Kontakt und Verkaufsdatum angelegt.

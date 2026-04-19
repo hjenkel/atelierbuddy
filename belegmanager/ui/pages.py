@@ -20,6 +20,8 @@ from ..app_state import ServiceContainer
 from ..config import settings
 from ..constants import (
     CONTACT_CATEGORY_ICON_OPTIONS,
+    COST_ALLOCATION_STATUS_DRAFT,
+    COST_ALLOCATION_STATUS_POSTED,
     COST_TYPE_ICON_OPTIONS,
     DEFAULT_CONTACT_CATEGORY_ICON,
     DEFAULT_CONTACT_CATEGORY_NAME,
@@ -28,7 +30,8 @@ from ..constants import (
 from ..countries import COUNTRY_OPTION_MAP, COUNTRY_LABEL_BY_CODE, DEFAULT_CONTACT_COUNTRY_CODE
 from ..db import engine
 from ..models import Contact, ContactCategory, CostAllocation, CostSubcategory, CostType, Order, OrderItem, Project, Receipt, Supplier
-from ..schemas import AllocationInput, OrderItemInput
+from ..receipt_completion import ReceiptCompletionService
+from ..schemas import AllocationInput, OrderItemInput, ReceiptSaveInput
 from ..services.order_service import (
     QUANTITY_STEP,
     order_item_total_cents,
@@ -55,6 +58,8 @@ _NAV_STATE = {
     "sidebar_mobile_open": False,
     "open_groups": {"finance": True, "management": True},
     "last_path": None,
+    "flash_notification": None,
+    "receipt_return_path": None,
 }
 
 _NAV_CONFIG: list[dict[str, Any]] = [
@@ -218,6 +223,24 @@ def _notify_error_with_client(client: Any, user_message: str, exc: Exception) ->
     error_id = uuid.uuid4().hex[:8]
     LOG.exception("UI action failed (%s): %s", error_id, user_message)
     _notify_client(client, f"{user_message}. Fehler-ID: {error_id}", type="negative")
+
+
+def _queue_flash_notification(message: str, *, type: str = "info") -> None:
+    _NAV_STATE["flash_notification"] = {"message": str(message), "type": str(type)}
+
+
+def _consume_flash_notification() -> dict[str, str] | None:
+    payload = _NAV_STATE.get("flash_notification")
+    _NAV_STATE["flash_notification"] = None
+    if not isinstance(payload, dict):
+        return None
+    message = str(payload.get("message") or "").strip()
+    if not message:
+        return None
+    return {
+        "message": message,
+        "type": str(payload.get("type") or "info"),
+    }
 
 
 def _parse_iso_date(value: str | None) -> date | None:
@@ -732,6 +755,7 @@ def _shell(
             open_groups[key] = group_active(entry)
     _NAV_STATE["open_groups"] = open_groups
     _NAV_STATE["last_path"] = active_path
+    flash_notification = _consume_flash_notification()
 
     def toggle_sidebar() -> None:
         _NAV_STATE["sidebar_expanded"] = not bool(_NAV_STATE["sidebar_expanded"])
@@ -803,6 +827,12 @@ def _shell(
     help_body = help_content.get("body", _DEFAULT_HELP_CONTENT["body"])
 
     with ui.column().classes(f"bm-app-root w-full {context_class(active_path)}"):
+        if flash_notification:
+            ui.timer(
+                0.05,
+                lambda payload=flash_notification: ui.notify(payload["message"], type=payload["type"]),
+                once=True,
+            )
         with ui.row().classes("bm-global-header w-full items-center"):
             with ui.row().classes("bm-global-header-inner w-full items-center justify-between"):
                 with ui.row().classes("items-center gap-2"):
@@ -1126,19 +1156,7 @@ def register_pages(services: ServiceContainer) -> None:
         }
 
     def missing_required_fields(receipt: Receipt) -> list[str]:
-        missing: list[str] = []
-        if receipt.doc_date is None:
-            missing.append("Belegdatum")
-        if receipt.supplier_id is None:
-            missing.append("Anbieter")
-        if receipt.amount_gross_cents is None:
-            missing.append(f"Brutto ({settings.default_currency})")
-        if receipt.vat_rate_percent is None:
-            missing.append("USt-Satz")
-        if receipt.amount_net_cents is None:
-            missing.append(f"Netto ({settings.default_currency})")
-        missing.extend(services.cost_allocation_service.validate_for_receipt(receipt))
-        return list(dict.fromkeys(missing))
+        return ReceiptCompletionService().evaluate_receipt(receipt).missing_fields
 
     def open_in_new_tab(url: str) -> None:
         _run_client_javascript(context.client, f"window.open({json.dumps(url)}, '_blank')")
@@ -1185,7 +1203,16 @@ def register_pages(services: ServiceContainer) -> None:
         async def clean_and_navigate(path: str) -> None:
             dirty_state["dirty"] = False
             await _await_client_javascript(client, f"window[{json.dumps(flag_name)}] = false;", timeout=30)
-            ui.navigate.to(path)
+            target_path = str(path or "/")
+            try:
+                ui.navigate.to(target_path)
+            except Exception:
+                LOG.debug("Serverseitige Navigation fehlgeschlagen, weiche auf Client-Navigation aus", exc_info=True)
+            await _await_client_javascript(
+                client,
+                f"window.location.assign({json.dumps(target_path)}); return true;",
+                timeout=1.0,
+            )
 
         async def guarded_navigate(path: str) -> None:
             if dirty_state["dirty"]:
@@ -1762,9 +1789,16 @@ def register_pages(services: ServiceContainer) -> None:
         except ValueError:
             rid = -1
 
+        client = context.client
         mark_dirty, mark_clean, is_dirty, guarded_navigate, clean_and_navigate = create_dirty_guard(
             f"atelierBuddyReceiptDirty_{rid}_{uuid.uuid4().hex}"
         )
+        previous_area_path = _NAV_STATE.get("last_path")
+        if isinstance(previous_area_path, str) and previous_area_path and previous_area_path != f"/belege/{rid}":
+            _NAV_STATE["receipt_return_path"] = previous_area_path
+        receipt_return_path = str(_NAV_STATE.get("receipt_return_path") or "/belege")
+        if receipt_return_path == f"/belege/{rid}":
+            receipt_return_path = "/belege"
 
         with _shell(
             "/belege",
@@ -1845,14 +1879,13 @@ def register_pages(services: ServiceContainer) -> None:
             preview_url = to_files_url(receipt.archive_path)
             preview_is_pdf = bool(receipt.archive_path and Path(receipt.archive_path).suffix.lower() == ".pdf")
             is_deleted = receipt.deleted_at is not None
-            missing_fields = missing_required_fields(receipt)
 
             with ui.card().classes("bm-card bm-detail-card p-4 w-full"):
                 with ui.row().classes("bm-detail-toolbar w-full items-center justify-between"):
                     with ui.row().classes("items-center gap-2"):
                         cancel_btn = ui.button(
                             icon="close",
-                            on_click=lambda: guarded_navigate("/belege"),
+                            on_click=lambda path=receipt_return_path: guarded_navigate(path),
                         ).props("flat round dense").classes("bm-icon-action-btn")
                         cancel_btn.tooltip("Abbrechen")
                         if preview_url:
@@ -1870,7 +1903,7 @@ def register_pages(services: ServiceContainer) -> None:
                             delete_btn.tooltip("In Gelöschte Belege")
                             save_btn = ui.button(
                                 icon="save",
-                                on_click=lambda: _detail_save(),
+                                on_click=lambda: asyncio.create_task(_detail_save()),
                             ).props("flat round dense").classes("bm-icon-action-btn bm-icon-action-btn--primary")
                             save_btn.tooltip("Speichern")
                         else:
@@ -2125,12 +2158,8 @@ def register_pages(services: ServiceContainer) -> None:
                                 ui.icon("description", size="52px")
 
                     with ui.column().classes("bm-detail-form gap-3"):
-                        completeness = "Vollständig" if not missing_fields else "Pflichtangaben fehlen"
-                        ui.label(f"Vollständigkeit: {completeness}").classes(
-                            "text-sm text-green-700" if not missing_fields else "text-sm text-amber-700"
-                        )
-                        if missing_fields:
-                            ui.label(f"Fehlt: {', '.join(missing_fields)}").classes("text-xs text-amber-700")
+                        completeness_label = ui.label("").classes("text-sm")
+                        missing_fields_label = ui.label("").classes("text-xs")
                         if is_deleted:
                             ui.label("Dieser Beleg liegt in Gelöschte Belege.").classes("text-sm text-amber-700")
 
@@ -2193,6 +2222,11 @@ def register_pages(services: ServiceContainer) -> None:
                         cost_type_select_options = {item.id: item.name for item in cost_types if item.id is not None}
                         project_map = project_options(active_only=True, include_ids=selected_project_ids)
                         subcategories_by_type: dict[int, list[CostSubcategory]] = {}
+                        subcategory_parent_by_id = {
+                            item.id: item.cost_type_id
+                            for item in cost_subcategories
+                            if item.id is not None
+                        }
                         default_subcategory_by_type: dict[int, int] = {}
                         for subcategory in cost_subcategories:
                             subcategories_by_type.setdefault(subcategory.cost_type_id, []).append(subcategory)
@@ -2228,14 +2262,15 @@ def register_pages(services: ServiceContainer) -> None:
                             if value is None:
                                 return None
                             if isinstance(value, int):
-                                return value
+                                return value if value > 0 else None
                             if isinstance(value, str):
                                 text = value.strip()
                                 if not text:
                                     return None
                                 if text.isdigit():
                                     try:
-                                        return int(text)
+                                        parsed = int(text)
+                                        return parsed if parsed > 0 else None
                                     except ValueError:
                                         return None
                             return None
@@ -2284,6 +2319,7 @@ def register_pages(services: ServiceContainer) -> None:
                                             type="positive",
                                         )
                                         reload_supplier_options(selected_id=supplier_id if isinstance(supplier_id, int) else None)
+                                        refresh_completion_state()
                                         dialog.close()
                                     except Exception as exc:
                                         _notify_error("Anbieter konnte nicht angelegt werden", exc)
@@ -2323,6 +2359,7 @@ def register_pages(services: ServiceContainer) -> None:
                                             row_target["project_id"] = project_id
                                         render_allocation_editor()
                                         refresh_allocation_summary()
+                                        refresh_completion_state()
                                         dialog.close()
                                     except Exception as exc:
                                         _notify_error("Projekt konnte nicht angelegt werden", exc)
@@ -2430,6 +2467,90 @@ def register_pages(services: ServiceContainer) -> None:
                         split_enabled = len(allocation_rows) > 1
                         allocation_editor = ui.column().classes("w-full gap-2")
                         allocation_summary = ui.label("").classes("text-xs")
+                        allocation_status_label = ui.label("").classes("text-xs")
+                        allocation_controls: list[dict[str, Any]] = []
+                        completion_service = ReceiptCompletionService()
+
+                        def parse_vat_rate_input(*, strict: bool) -> float | None:
+                            vat_raw = (vat_input.value or "").strip()
+                            if not vat_raw:
+                                return None
+                            try:
+                                vat_rate = float(vat_raw.replace(",", "."))
+                            except ValueError as exc:
+                                if strict:
+                                    raise ValueError("Ungültiger USt-Satz") from exc
+                                return None
+                            if vat_rate < 0:
+                                if strict:
+                                    raise ValueError("USt-Satz darf nicht negativ sein")
+                                return None
+                            return vat_rate
+
+                        def build_allocation_payload(*, strict: bool) -> list[AllocationInput]:
+                            payload: list[AllocationInput] = []
+                            for index, control in enumerate(allocation_controls):
+                                cost_type_value = to_optional_int(control["cost_type_input"].value)
+                                cost_subcategory_value = to_optional_int(control["cost_subcategory_input"].value)
+                                project_value = to_optional_int(control["project_input"].value)
+                                raw_amount_value = gross_input.value if control["mode"] == "standard" else control["amount_input"].value
+                                try:
+                                    amount_cents = _parse_money_to_cents(raw_amount_value, allow_negative=True)
+                                except ValueError:
+                                    if strict:
+                                        raise
+                                    amount_cents = None
+                                payload.append(
+                                    AllocationInput(
+                                        cost_type_id=cost_type_value,
+                                        cost_subcategory_id=cost_subcategory_value,
+                                        project_id=project_value,
+                                        cost_area_id=None,
+                                        amount_cents=amount_cents,
+                                        position=index + 1,
+                                    )
+                                )
+                            return payload
+
+                        def build_receipt_save_input(*, strict: bool) -> ReceiptSaveInput:
+                            try:
+                                gross_cents = _parse_money_to_cents(gross_input.value, allow_negative=True)
+                            except ValueError:
+                                if strict:
+                                    raise
+                                gross_cents = None
+                            return ReceiptSaveInput(
+                                doc_date=_parse_iso_date(date_input.value),
+                                supplier_id=to_optional_int(supplier_input.value),
+                                amount_gross_cents=gross_cents,
+                                vat_rate_percent=parse_vat_rate_input(strict=strict),
+                                amount_net_cents=None,
+                                notes=notes_input.value,
+                                document_type=current_document_type(),
+                                allocations=build_allocation_payload(strict=strict),
+                            )
+
+                        def current_completion_result() -> Any:
+                            snapshot = build_receipt_save_input(strict=False)
+                            normalized_vat_rate = snapshot.vat_rate_percent
+                            if snapshot.amount_gross_cents is None:
+                                normalized_vat_rate = None
+                            normalized_snapshot = completion_service.with_computed_net(
+                                ReceiptSaveInput(
+                                    doc_date=snapshot.doc_date,
+                                    supplier_id=snapshot.supplier_id,
+                                    amount_gross_cents=snapshot.amount_gross_cents,
+                                    vat_rate_percent=normalized_vat_rate,
+                                    amount_net_cents=None,
+                                    notes=snapshot.notes,
+                                    document_type=snapshot.document_type,
+                                    allocations=snapshot.allocations,
+                                )
+                            )
+                            return completion_service.evaluate_snapshot(
+                                normalized_snapshot,
+                                subcategory_type_ids=subcategory_parent_by_id,
+                            )
 
                         def refresh_net_preview() -> None:
                             try:
@@ -2438,7 +2559,10 @@ def register_pages(services: ServiceContainer) -> None:
                                     net_input.value = "-"
                                     return
                                 vat_raw = (vat_input.value or "").strip()
-                                vat_rate = float(vat_raw.replace(",", ".")) if vat_raw else settings.default_vat_rate_percent
+                                if not vat_raw:
+                                    net_input.value = "-"
+                                    return
+                                vat_rate = float(vat_raw.replace(",", "."))
                                 if vat_rate < 0:
                                     net_input.value = "Ungültiger USt-Satz"
                                     return
@@ -2489,6 +2613,7 @@ def register_pages(services: ServiceContainer) -> None:
                             )
                             refresh_net_preview()
                             refresh_allocation_summary()
+                            refresh_completion_state()
 
                         previous_document_type = current_document_type()
 
@@ -2502,11 +2627,16 @@ def register_pages(services: ServiceContainer) -> None:
                             render_allocation_editor()
                             refresh_net_preview()
                             refresh_allocation_summary()
+                            refresh_completion_state()
 
-                        gross_input.on_value_change(lambda _: (schedule_net_preview(), mark_dirty()))
-                        vat_input.on_value_change(lambda _: (schedule_net_preview(), mark_dirty()))
-                        date_input.on_value_change(lambda _: mark_dirty())
-                        supplier_input.on_value_change(lambda _: mark_dirty())
+                        gross_input.on_value_change(
+                            lambda _: (schedule_net_preview(), mark_dirty(), refresh_allocation_summary(), refresh_completion_state())
+                        )
+                        vat_input.on_value_change(
+                            lambda _: (schedule_net_preview(), mark_dirty(), refresh_completion_state())
+                        )
+                        date_input.on_value_change(lambda _: (mark_dirty(), refresh_completion_state()))
+                        supplier_input.on_value_change(lambda _: (mark_dirty(), refresh_completion_state()))
                         notes_input.on_value_change(lambda _: mark_dirty())
                         gross_input.on("keydown.enter", lambda _: refresh_net_preview())
                         vat_input.on("keydown.enter", lambda _: refresh_net_preview())
@@ -2516,10 +2646,8 @@ def register_pages(services: ServiceContainer) -> None:
 
                         def refresh_allocation_summary() -> None:
                             mark_dirty()
-                            try:
-                                gross_cents = _parse_money_to_cents(gross_input.value, allow_negative=True)
-                            except ValueError:
-                                gross_cents = None
+                            snapshot = build_receipt_save_input(strict=False)
+                            gross_cents = snapshot.amount_gross_cents
                             if gross_cents is None:
                                 allocation_summary.text = "Kostenzuordnung: Brutto fehlt oder ist ungültig."
                                 allocation_summary.classes("text-xs text-amber-700")
@@ -2533,7 +2661,7 @@ def register_pages(services: ServiceContainer) -> None:
 
                             _, diff = _allocation_total_and_diff_cents(
                                 gross_cents,
-                                [row.get("amount_text") for row in allocation_rows],
+                                [allocation.amount_cents for allocation in snapshot.allocations],
                                 allow_negative=True,
                             )
                             if diff is None:
@@ -2557,6 +2685,35 @@ def register_pages(services: ServiceContainer) -> None:
                                     )
                                     allocation_summary.classes("text-xs text-red-600")
 
+                        def refresh_completion_state() -> None:
+                            result = current_completion_result()
+                            completeness_label.text = (
+                                "Vollständigkeit: Vollständig"
+                                if result.is_complete
+                                else "Vollständigkeit: Pflichtangaben fehlen"
+                            )
+                            completeness_label.classes(remove="text-green-700 text-amber-700")
+                            completeness_label.classes(add="text-green-700" if result.is_complete else "text-amber-700")
+                            missing_fields_label.text = (
+                                ""
+                                if result.is_complete
+                                else f"Fehlt: {', '.join(result.missing_fields)}"
+                            )
+                            missing_fields_label.classes(remove="hidden")
+                            if result.is_complete:
+                                missing_fields_label.classes(add="hidden")
+                            allocation_status_label.text = (
+                                "Zuordnungsstatus: offiziell gebucht."
+                                if result.allocation_status_to_persist == COST_ALLOCATION_STATUS_POSTED
+                                else "Zuordnungsstatus: Entwurf. Kosten gelten noch nicht als offiziell gebucht."
+                            )
+                            allocation_status_label.classes(remove="text-green-700 text-amber-700")
+                            allocation_status_label.classes(
+                                add="text-green-700"
+                                if result.allocation_status_to_persist == COST_ALLOCATION_STATUS_POSTED
+                                else "text-amber-700"
+                            )
+
                         def ensure_standard_single_row() -> None:
                             nonlocal allocation_rows
                             if not allocation_rows:
@@ -2576,6 +2733,7 @@ def register_pages(services: ServiceContainer) -> None:
 
                         def render_allocation_editor() -> None:
                             allocation_editor.clear()
+                            allocation_controls.clear()
                             with allocation_editor:
                                 with ui.row().classes("w-full items-center justify-between"):
                                     ui.label("Kostenzuordnung").classes("text-sm font-semibold")
@@ -2591,6 +2749,7 @@ def register_pages(services: ServiceContainer) -> None:
                                         ensure_standard_single_row()
                                     render_allocation_editor()
                                     refresh_allocation_summary()
+                                    refresh_completion_state()
 
                                 split_toggle.on("update:model-value", lambda _: on_split_toggle())
 
@@ -2635,6 +2794,15 @@ def register_pages(services: ServiceContainer) -> None:
                                                 on_click=lambda row_ref=row: open_quick_project_dialog(row_ref),
                                             ).props("flat").classes("bm-inline-create-btn")
                                             project_add_btn.tooltip("Neues Projekt anlegen")
+                                    allocation_controls.append(
+                                        {
+                                            "mode": "standard",
+                                            "cost_type_input": cost_type_input,
+                                            "cost_subcategory_input": subcategory_input,
+                                            "project_input": project_input,
+                                            "amount_input": None,
+                                        }
+                                    )
 
                                     def update_standard_fields() -> None:
                                         row["cost_type_id"] = to_optional_int(cost_type_input.value)
@@ -2659,13 +2827,13 @@ def register_pages(services: ServiceContainer) -> None:
                                         row["project_id"] = to_optional_int(project_input.value)
 
                                     cost_type_input.on_value_change(
-                                        lambda _: (update_standard_fields(), refresh_allocation_summary())
+                                        lambda _: (update_standard_fields(), refresh_allocation_summary(), refresh_completion_state())
                                     )
                                     subcategory_input.on_value_change(
-                                        lambda _: (update_subcategory(), refresh_allocation_summary())
+                                        lambda _: (update_subcategory(), refresh_allocation_summary(), refresh_completion_state())
                                     )
                                     project_input.on_value_change(
-                                        lambda _: (update_subcategory(), refresh_allocation_summary())
+                                        lambda _: (update_subcategory(), refresh_allocation_summary(), refresh_completion_state())
                                     )
                                 else:
                                     for idx, row in enumerate(allocation_rows):
@@ -2715,6 +2883,15 @@ def register_pages(services: ServiceContainer) -> None:
                                                         icon="remove_circle",
                                                         on_click=lambda i=idx: remove_allocation_row(i),
                                                     ).props("flat round dense color=negative")
+                                            allocation_controls.append(
+                                                {
+                                                    "mode": "split",
+                                                    "cost_type_input": cost_type_input,
+                                                    "cost_subcategory_input": subcategory_input,
+                                                    "project_input": project_input,
+                                                    "amount_input": amount_input,
+                                                }
+                                            )
 
                                             def update_split_cost_type(
                                                 row_ref: dict[str, Any] = row,
@@ -2756,18 +2933,24 @@ def register_pages(services: ServiceContainer) -> None:
                                                 row_ref["amount_text"] = str(raw_value or "")
 
                                             cost_type_input.on_value_change(
-                                                lambda _, fn=update_split_cost_type: (fn(), refresh_allocation_summary())
+                                                lambda _, fn=update_split_cost_type: (
+                                                    fn(),
+                                                    refresh_allocation_summary(),
+                                                    refresh_completion_state(),
+                                                )
                                             )
                                             subcategory_input.on_value_change(
                                                 lambda _, fn=update_split_subcategory_project: (
                                                     fn(),
                                                     refresh_allocation_summary(),
+                                                    refresh_completion_state(),
                                                 )
                                             )
                                             project_input.on_value_change(
                                                 lambda _, fn=update_split_subcategory_project: (
                                                     fn(),
                                                     refresh_allocation_summary(),
+                                                    refresh_completion_state(),
                                                 )
                                             )
                                             amount_input.on(
@@ -2775,6 +2958,7 @@ def register_pages(services: ServiceContainer) -> None:
                                                 lambda e, fn=update_split_amount, inp=amount_input: (
                                                     fn(_extract_model_value(e, inp.value)),
                                                     refresh_allocation_summary(),
+                                                    refresh_completion_state(),
                                                 ),
                                             )
                                             amount_input.on(
@@ -2782,6 +2966,7 @@ def register_pages(services: ServiceContainer) -> None:
                                                 lambda _, fn=update_split_amount, inp=amount_input: (
                                                     fn(inp.value),
                                                     refresh_allocation_summary(),
+                                                    refresh_completion_state(),
                                                 ),
                                             )
 
@@ -2815,6 +3000,7 @@ def register_pages(services: ServiceContainer) -> None:
                             allocation_rows.append(new_row)
                             render_allocation_editor()
                             refresh_allocation_summary()
+                            refresh_completion_state()
 
                         def remove_allocation_row(index: int) -> None:
                             nonlocal allocation_rows
@@ -2823,10 +3009,12 @@ def register_pages(services: ServiceContainer) -> None:
                             allocation_rows = [row for idx, row in enumerate(allocation_rows) if idx != index]
                             render_allocation_editor()
                             refresh_allocation_summary()
+                            refresh_completion_state()
 
                         apply_document_type_sign_to_inputs(flip_existing=False)
                         render_allocation_editor()
                         refresh_allocation_summary()
+                        refresh_completion_state()
 
                         if is_deleted:
                             date_input.disable()
@@ -2844,8 +3032,8 @@ def register_pages(services: ServiceContainer) -> None:
                                 return
                             try:
                                 services.receipt_service.move_to_trash(receipt_id_for_action)
-                                ui.notify("Beleg in Gelöschte Belege verschoben", type="positive")
-                                await clean_and_navigate("/belege")
+                                _queue_flash_notification("Beleg in Gelöschte Belege verschoben", type="positive")
+                                await clean_and_navigate(receipt_return_path)
                             except Exception as exc:
                                 _notify_error("Löschen fehlgeschlagen", exc)
 
@@ -2854,77 +3042,29 @@ def register_pages(services: ServiceContainer) -> None:
                                 return
                             try:
                                 services.receipt_service.restore_from_trash(receipt_id_for_action)
-                                ui.notify("Beleg wiederhergestellt", type="positive")
-                                await clean_and_navigate("/belege")
+                                _queue_flash_notification("Beleg wiederhergestellt", type="positive")
+                                await clean_and_navigate(receipt_return_path)
                             except Exception as exc:
                                 _notify_error("Wiederherstellung fehlgeschlagen", exc)
 
                         async def _detail_save() -> None:
                             await _flush_active_input(client)
                             try:
-                                document_type = current_document_type()
-                                amount_gross_cents = _parse_money_to_cents(gross_input.value, allow_negative=True)
-                                vat_raw = (vat_input.value or "").strip()
-                                vat_rate_percent = (
-                                    float(vat_raw.replace(",", ".")) if vat_raw else settings.default_vat_rate_percent
-                                )
-                                if vat_rate_percent < 0:
-                                    raise ValueError("USt-Satz darf nicht negativ sein")
-                                if amount_gross_cents is not None:
-                                    if document_type == DOC_TYPE_INVOICE and amount_gross_cents < 0:
-                                        raise ValueError("Bei Rechnung muss der Bruttobetrag >= 0 sein")
-                                    if document_type == DOC_TYPE_CREDIT_NOTE and amount_gross_cents > 0:
-                                        raise ValueError("Bei Gutschrift muss der Bruttobetrag <= 0 sein")
-                                if amount_gross_cents is None:
-                                    vat_rate_percent = None
-
-                                allocation_payload: list[AllocationInput] = []
-                                if not split_enabled:
-                                    ensure_standard_single_row()
-                                    row = allocation_rows[0]
-                                    allocation_payload.append(
-                                        AllocationInput(
-                                            cost_type_id=int(row.get("cost_type_id") or 0),
-                                            cost_subcategory_id=int(row.get("cost_subcategory_id") or 0),
-                                            project_id=int(row["project_id"]) if row.get("project_id") else None,
-                                            cost_area_id=None,
-                                            amount_cents=amount_gross_cents or 0,
-                                            position=1,
-                                        )
-                                    )
-                                else:
-                                    for idx, row in enumerate(allocation_rows):
-                                        amount_cents = _parse_money_to_cents(row.get("amount_text"), allow_negative=True)
-                                        allocation_payload.append(
-                                            AllocationInput(
-                                                cost_type_id=int(row.get("cost_type_id") or 0),
-                                                cost_subcategory_id=int(row.get("cost_subcategory_id") or 0),
-                                                project_id=int(row["project_id"]) if row.get("project_id") else None,
-                                                cost_area_id=None,
-                                                amount_cents=amount_cents or 0,
-                                                position=idx + 1,
-                                            )
-                                        )
-
-                                services.receipt_service.update_metadata(
-                                    receipt_id=rid,
-                                    doc_date=_parse_iso_date(date_input.value),
-                                    supplier_id=int(supplier_input.value) if supplier_input.value else None,
-                                    amount_gross_cents=amount_gross_cents,
-                                    vat_rate_percent=vat_rate_percent,
-                                    notes=notes_input.value,
-                                    document_type=document_type,
-                                )
-                                services.cost_allocation_service.save_allocations(
-                                    receipt_id=rid,
-                                    allocations=allocation_payload,
+                                result = services.receipt_service.save_detail(
+                                    rid,
+                                    build_receipt_save_input(strict=True),
                                 )
                             except Exception as exc:
                                 _notify_error("Speichern fehlgeschlagen", exc)
                                 return
 
-                            ui.notify("Beleg gespeichert", type="positive")
-                            await clean_and_navigate("/belege")
+                            _queue_flash_notification(
+                                "Beleg vollständig gespeichert"
+                                if result.is_complete
+                                else "Beleg gespeichert. Pflichtangaben fehlen noch.",
+                                type="positive" if result.is_complete else "warning",
+                            )
+                            await clean_and_navigate(receipt_return_path)
 
     @ui.page("/verkaeufe")
     def orders_page() -> None:
@@ -3826,19 +3966,19 @@ def register_pages(services: ServiceContainer) -> None:
                         if not is_deleted and not is_locked_for_delete:
                             delete_btn = ui.button(
                                 icon="delete_outline",
-                                on_click=lambda: _detail_move_to_deleted(),
+                                on_click=lambda: asyncio.create_task(_detail_move_to_deleted()),
                             ).props("flat round dense").classes("bm-icon-action-btn bm-icon-action-btn--danger")
                             delete_btn.tooltip("In Gelöschte Verkäufe")
                         if not is_deleted:
                             save_btn = ui.button(
                                 icon="save",
-                                on_click=lambda: _save_order(),
+                                on_click=lambda: asyncio.create_task(_save_order()),
                             ).props("flat round dense").classes("bm-icon-action-btn bm-icon-action-btn--primary")
                             save_btn.tooltip("Speichern")
                         else:
                             restore_btn = ui.button(
                                 icon="restore_from_trash",
-                                on_click=lambda: _detail_restore(),
+                                on_click=lambda: asyncio.create_task(_detail_restore()),
                             ).props("flat round dense").classes("bm-icon-action-btn bm-icon-action-btn--success")
                             restore_btn.tooltip("Wiederherstellen")
 
@@ -4593,9 +4733,9 @@ def register_pages(services: ServiceContainer) -> None:
                             ui.button(
                                 "Projekt löschen",
                                 icon="delete",
-                                on_click=lambda: _delete_and_back(),
+                                on_click=lambda: asyncio.create_task(_delete_and_back()),
                             ).props("flat color=negative")
-                            ui.button("Speichern", on_click=lambda: _save_project()).props("color=primary")
+                            ui.button("Speichern", on_click=lambda: asyncio.create_task(_save_project())).props("color=primary")
 
                         async def _save_project() -> None:
                             await _flush_active_input(context.client)

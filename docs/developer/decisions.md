@@ -1,6 +1,6 @@
 # Architekturentscheidungen
 
-Version-Single-Source: `pyproject.toml` (`0.3.2`)
+Version-Single-Source: `pyproject.toml` (`0.3.3`)
 
 ## 1. Lokal-first und self-hosted
 Entscheidung:
@@ -42,9 +42,11 @@ Konsequenz:
 Entscheidung:
 - Ausgaben werden fachlich nicht direkt an einen Belegkopf gebunden
 - stattdessen bildet `cost_allocation` die zentrale Verteilungsebene
+- unvollständige Zuordnungen dürfen als `draft` gespeichert werden, fachlich wirksam sind aber nur `posted`-Zeilen
 
 Warum:
 - unterstützt Split-Zuordnungen
+- erlaubt Entwurfsstände ohne Datenverlust
 - sichert Summenkonsistenz
 - bildet eine belastbare Basis für Reports
 

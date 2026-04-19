@@ -6,7 +6,7 @@ from pathlib import Path
 
 from sqlmodel import Session, SQLModel, create_engine
 
-from belegmanager.models import Contact, ContactCategory, CostAllocation, CostSubcategory, CostType, Order, OrderItem, Project, Receipt
+from belegmanager.models import Contact, ContactCategory, CostAllocation, CostSubcategory, CostType, Order, OrderItem, Project, Receipt, Supplier
 from belegmanager.services.report_service import ReportService
 
 
@@ -24,12 +24,14 @@ def _build_service(tmp_path: Path) -> ReportService:
         software = CostType(name="Software", icon="computer", active=True)
         project_mural = Project(name="Mural", color="#123456", active=True)
         project_album = Project(name="Album", color="#654321", active=True)
+        supplier = Supplier(name="Studio Shop", active=True)
         contact_category = ContactCategory(name="Interessent / Kunde", icon="handshake")
         contact = Contact(given_name="Alex", family_name="Meyer", contact_category=contact_category)
         session.add(material)
         session.add(software)
         session.add(project_mural)
         session.add(project_album)
+        session.add(supplier)
         session.add(contact_category)
         session.add(contact)
         session.flush()
@@ -60,6 +62,7 @@ def _build_service(tmp_path: Path) -> ReportService:
             vat_rate_percent=19.0,
             amount_net_cents=8403,
             document_type="invoice",
+            supplier_id=supplier.id,
             created_at=_utc_now(),
             updated_at=_utc_now(),
         )
@@ -71,6 +74,7 @@ def _build_service(tmp_path: Path) -> ReportService:
             vat_rate_percent=19.0,
             amount_net_cents=-1681,
             document_type="credit_note",
+            supplier_id=supplier.id,
             created_at=_utc_now(),
             updated_at=_utc_now(),
         )
@@ -82,6 +86,7 @@ def _build_service(tmp_path: Path) -> ReportService:
             vat_rate_percent=19.0,
             amount_net_cents=4202,
             document_type="invoice",
+            supplier_id=supplier.id,
             deleted_at=_utc_now(),
             created_at=_utc_now(),
             updated_at=_utc_now(),
@@ -94,6 +99,7 @@ def _build_service(tmp_path: Path) -> ReportService:
             vat_rate_percent=19.0,
             amount_net_cents=2521,
             document_type="invoice",
+            supplier_id=supplier.id,
             created_at=_utc_now(),
             updated_at=_utc_now(),
         )
@@ -105,6 +111,7 @@ def _build_service(tmp_path: Path) -> ReportService:
             vat_rate_percent=19.0,
             amount_net_cents=7563,
             document_type="invoice",
+            supplier_id=supplier.id,
             created_at=_utc_now(),
             updated_at=_utc_now(),
         )

@@ -162,12 +162,18 @@ def test_init_db_migrates_legacy_schema_without_touching_archive(
         contact_columns = {str(row[1]) for row in session.exec(text("PRAGMA table_info(contact)")).all()}
         order_columns = {str(row[1]) for row in session.exec(text("PRAGMA table_info(sales_order)")).all()}
         profile_columns = {str(row[1]) for row in session.exec(text("PRAGMA table_info(invoice_profile)")).all()}
+        allocation_columns = {
+            str(row[1]): row
+            for row in session.exec(text("PRAGMA table_info(cost_allocation)")).all()
+        }
         migrated_country = session.exec(text("SELECT country FROM contact WHERE id = 1")).one()
         migration_count = session.exec(text("SELECT COUNT(*) FROM schema_migration")).one()
 
     assert {"street", "house_number", "address_extra", "postal_code", "country"}.issubset(contact_columns)
     assert {"invoice_document_updated_at", "invoice_document_source"}.issubset(order_columns)
     assert {"display_name", "tax_id_type", "payment_term_days", "logo_path"}.issubset(profile_columns)
+    assert "status" in allocation_columns
+    assert int(allocation_columns["cost_type_id"][3]) == 0
     assert migrated_country[0] == "DE"
     assert migration_count[0] == len(db.MIGRATIONS)
     assert archive_probe.read_text(encoding="utf-8") == "preserve me"

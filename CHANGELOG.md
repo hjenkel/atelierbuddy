@@ -4,6 +4,12 @@ Alle wichtigen Änderungen an diesem Projekt werden in dieser Datei dokumentiert
 
 Das Format orientiert sich an Keep a Changelog, und dieses Projekt folgt Semantic Versioning (`0.y.z` vor `1.0`).
 
+## [0.3.3] - 2026-04-19
+### Geändert
+- Beleg-Speicherflow vereinheitlicht: Belege lassen sich nun auch bei noch unvollständigen Pflichtangaben speichern, ohne dass Zuordnungsentwürfe verloren gehen.
+- Vollständigkeit von Belegen und Kostenzuordnungen wird jetzt zentral berechnet; nur vollständige Zuordnungen gelten als `posted` und fließen in fachliche Auswertungen ein.
+- Detailansicht für Belege aktualisiert: Live-Vollständigkeitsanzeige, stabilerer Speichern-Handler und Rücknavigation zur Herkunftsseite nach dem Speichern.
+
 ## [0.3.2] - 2026-04-18
 ### Hinzugefügt
 - Installweites Rechnungssteller-Profil mit Bankverbindung, Steuerkennzeichen, Zahlungsziel und Logo in den Einstellungen ergänzt.

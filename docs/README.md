@@ -2,7 +2,7 @@
 
 Diese Dokumentation bündelt den technischen Ist-Zustand von Atelier Buddy.
 
-Version-Quelle (Single Source of Truth): `pyproject.toml` -> `[project].version` (aktuell `0.3.2`).
+Version-Quelle (Single Source of Truth): `pyproject.toml` -> `[project].version` (aktuell `0.3.3`).
 
 ## Ziel der Doku
 - den aktuellen Codezustand nachvollziehbar machen

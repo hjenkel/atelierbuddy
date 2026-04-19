@@ -26,12 +26,31 @@ class SearchFilters:
 
 @dataclass(slots=True)
 class AllocationInput:
-    cost_type_id: int
-    cost_subcategory_id: int
+    cost_type_id: int | None
+    cost_subcategory_id: int | None
     project_id: int | None
     cost_area_id: int | None
-    amount_cents: int
+    amount_cents: int | None
     position: int
+
+
+@dataclass(slots=True)
+class ReceiptSaveInput:
+    doc_date: date | None
+    supplier_id: int | None
+    amount_gross_cents: int | None
+    vat_rate_percent: float | None
+    amount_net_cents: int | None
+    notes: str | None
+    document_type: str
+    allocations: list[AllocationInput]
+
+
+@dataclass(slots=True)
+class ReceiptCompletionResult:
+    missing_fields: list[str]
+    is_complete: bool
+    allocation_status_to_persist: str
 
 
 @dataclass(slots=True)

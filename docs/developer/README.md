@@ -2,7 +2,7 @@
 
 Diese Sektion beschreibt den technischen Ist-Zustand von Atelier Buddy auf Basis des aktuellen Codes.
 
-Version-Single-Source: `pyproject.toml` (`[project].version`, aktuell `0.3.2`).
+Version-Single-Source: `pyproject.toml` (`[project].version`, aktuell `0.3.3`).
 
 ## Inhalte
 - [Datenbankstruktur](./database.md)

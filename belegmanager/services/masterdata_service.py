@@ -6,7 +6,12 @@ from sqlalchemy import delete, func, update as sa_update
 from sqlmodel import Session, select
 
 from ..countries import COUNTRY_LABEL_BY_CODE, DEFAULT_CONTACT_COUNTRY_CODE
-from ..constants import DEFAULT_COST_TYPE_ICON, DEFAULT_SUBCATEGORY_NAME, default_subcategory_name_for_cost_type
+from ..constants import (
+    COST_ALLOCATION_STATUS_POSTED,
+    DEFAULT_COST_TYPE_ICON,
+    DEFAULT_SUBCATEGORY_NAME,
+    default_subcategory_name_for_cost_type,
+)
 from ..db import engine
 from ..models import Contact, ContactCategory, CostAllocation, CostSubcategory, CostType, Order, OrderItem, Project, Receipt, Supplier
 
@@ -355,7 +360,10 @@ class MasterDataService:
 
     def _is_project_used(self, session: Session, project_id: int) -> bool:
         existing_allocation = session.exec(
-            select(CostAllocation.id).where(CostAllocation.project_id == project_id).limit(1)
+            select(CostAllocation.id).where(
+                CostAllocation.project_id == project_id,
+                CostAllocation.status == COST_ALLOCATION_STATUS_POSTED,
+            ).limit(1)
         ).first()
         if existing_allocation is not None:
             return True
@@ -571,11 +579,21 @@ class MasterDataService:
                 session.add(item)
 
     def _is_cost_type_used(self, session: Session, category_id: int) -> bool:
-        used = session.exec(select(CostAllocation.id).where(CostAllocation.cost_type_id == category_id)).first()
+        used = session.exec(
+            select(CostAllocation.id).where(
+                CostAllocation.cost_type_id == category_id,
+                CostAllocation.status == COST_ALLOCATION_STATUS_POSTED,
+            )
+        ).first()
         return used is not None
 
     def _is_subcategory_used(self, session: Session, subcategory_id: int) -> bool:
-        used = session.exec(select(CostAllocation.id).where(CostAllocation.cost_subcategory_id == subcategory_id)).first()
+        used = session.exec(
+            select(CostAllocation.id).where(
+                CostAllocation.cost_subcategory_id == subcategory_id,
+                CostAllocation.status == COST_ALLOCATION_STATUS_POSTED,
+            )
+        ).first()
         return used is not None
 
     def _ensure_contact_can_be_deleted(self, session: Session, contact_id: int) -> None:

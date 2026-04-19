@@ -27,6 +27,7 @@ Atelier Buddy ist eine lokale Belegverwaltung für Künstler:innen, Bands und Kr
 - UI nur in `belegmanager/ui/*` (Seiten/Theme), Fachlogik in `belegmanager/services/*`
 - Datenmodell in `belegmanager/models.py`, DB-Setup und interne Migrationen in `belegmanager/db.py`
 - Fachliche Zuordnungs-Wahrheit liegt in `cost_allocation` (nicht parallel in UI-Nebenfeldern)
+- Nur vollständige Kostenzuordnungen mit Status `posted` gelten als echte Ausgabe; Entwürfe mit Status `draft` dürfen keine offizielle Buchungswirkung in Auswertungen oder fachlichen Sperrprüfungen entfalten
 - Geldwerte immer als `*_cents` (Integer), nicht als Float speichern
 - Version-Single-Source-of-Truth: `pyproject.toml` (`[project].version`)
 - Persistente Laufzeitdaten liegen unter `data/` (DB + Archiv)

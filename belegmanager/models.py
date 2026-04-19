@@ -5,6 +5,8 @@ from typing import List, Optional
 from sqlalchemy import Column, Numeric
 from sqlmodel import Field, Relationship, SQLModel
 
+from .constants import COST_ALLOCATION_STATUS_POSTED
+
 
 class AppUser(SQLModel, table=True):
     __tablename__ = "app_user"
@@ -214,17 +216,18 @@ class CostAllocation(SQLModel, table=True):
 
     id: Optional[int] = Field(default=None, primary_key=True)
     receipt_id: int = Field(foreign_key="receipt.id", index=True)
-    cost_type_id: int = Field(foreign_key="cost_type.id", index=True)
+    cost_type_id: Optional[int] = Field(default=None, foreign_key="cost_type.id", index=True)
     cost_subcategory_id: Optional[int] = Field(default=None, foreign_key="cost_subcategory.id", index=True)
     project_id: Optional[int] = Field(default=None, foreign_key="project.id", index=True)
     cost_area_id: Optional[int] = Field(default=None, foreign_key="cost_area.id", index=True)
     amount_cents: int = Field(default=0)
     position: int = Field(default=1)
+    status: str = Field(default=COST_ALLOCATION_STATUS_POSTED, index=True)
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     receipt: Receipt = Relationship(back_populates="allocations")
-    cost_type: CostType = Relationship(back_populates="allocations")
+    cost_type: Optional[CostType] = Relationship(back_populates="allocations")
     cost_subcategory: Optional[CostSubcategory] = Relationship(back_populates="allocations")
     project: Optional[Project] = Relationship(back_populates="allocations")
     cost_area: Optional[CostArea] = Relationship(back_populates="allocations")

@@ -2,7 +2,7 @@
 
 Lokale Web-App für Belegverwaltung, Ausgangsrechnungen und betriebliche Auswertungen in kreativen Arbeitskontexten.
 
-Aktuelle Version: `0.3.2`
+Aktuelle Version: `0.3.3`
 
 ## Was ist Atelier Buddy?
 Atelier Buddy richtet sich an Künstler:innen, Bands und andere Solo- oder Kleinstteams, die Belege, Kontakte, Projekte und Verkäufe an einem Ort pflegen möchten, ohne in klassische ERP- oder Steuerkanzlei-Software zu wechseln.
@@ -20,7 +20,7 @@ Atelier Buddy richtet sich an Künstler:innen, Bands und andere Solo- oder Klein
 - Batch-Import von PDF-, JPG-, PNG- und HEIC-Dateien
 - OCR-Texterkennung und Volltextsuche in Belegen
 - Belegdetails mit Brutto/USt/Netto, Anbieter, Typ, Notizen
-- Kostenzuordnung pro Beleg mit Split-Aufteilung
+- Kostenzuordnung pro Beleg mit Split-Aufteilung sowie Entwurfs-/Vollständigkeitslogik
 - Individuelle Verwaltung der Kontaktkategorien, Anbieter (Shops, Partner und Co) und Kostenkategorien.
 - Kontakt-Datenbank
 - Verkaufsverwaltung, welche Einnahmen darstellt und ausgehende Rechnungen archivieren kann.
@@ -74,7 +74,7 @@ docker compose up -d
 Hinweise:
 - Die App ist danach standardmäßig unter `http://hostname:12321` erreichbar.
 - Persistente Daten liegen im Volume unter `/app/data`.
-- Für reproduzierbare Releases kann statt `latest` auch ein Versions-Tag wie `ghcr.io/hjenkel/atelierbuddy:0.3.2` verwendet werden.
+- Für reproduzierbare Releases kann statt `latest` auch ein Versions-Tag wie `ghcr.io/hjenkel/atelierbuddy:0.3.3` verwendet werden.
 
 ## Lokale Installation
 ### Voraussetzungen

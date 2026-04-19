@@ -10,16 +10,19 @@ from sqlmodel import Session, SQLModel, create_engine, select
 
 from .config import settings
 from .constants import (
+    COST_ALLOCATION_STATUS_POSTED,
     DEFAULT_CONTACT_CATEGORIES,
     DEFAULT_CONTACT_CATEGORY_ICON,
     DEFAULT_COST_AREA_ICON,
     DEFAULT_COST_AREAS,
     DEFAULT_COST_TYPES,
+    DEFAULT_HIDDEN_COST_AREA_NAME,
     DEFAULT_SUBCATEGORY_NAME,
     default_subcategory_name_for_cost_type,
 )
 from .fts import init_fts
-from .models import Contact, ContactCategory, CostAllocation, CostArea, CostSubcategory, CostType, InvoiceProfile, Order, OrderItem
+from .models import Contact, ContactCategory, CostAllocation, CostArea, CostSubcategory, CostType, InvoiceProfile, Order, OrderItem, Receipt
+from .receipt_completion import ReceiptCompletionService
 
 LOG = logging.getLogger(__name__)
 MIGRATION_TABLE = "schema_migration"
@@ -164,10 +167,28 @@ def _seed_defaults(session: Session) -> None:
         session.exec(select(CostAllocation).where(CostAllocation.cost_subcategory_id.is_(None))).all()
     )
     for allocation in allocations_without_subcategory:
+        if allocation.cost_type_id is None:
+            continue
         default_subcategory = default_subcategory_by_category.get(allocation.cost_type_id)
         if default_subcategory and default_subcategory.id is not None:
             allocation.cost_subcategory_id = default_subcategory.id
             session.add(allocation)
+
+    default_cost_area = session.exec(select(CostArea).where(CostArea.name == DEFAULT_HIDDEN_COST_AREA_NAME)).first()
+    if default_cost_area and default_cost_area.id is not None:
+        allocations_without_cost_area = list(
+            session.exec(
+                select(CostAllocation).where(
+                    CostAllocation.project_id.is_(None),
+                    CostAllocation.cost_area_id.is_(None),
+                )
+            ).all()
+        )
+        for allocation in allocations_without_cost_area:
+            allocation.cost_area_id = default_cost_area.id
+            session.add(allocation)
+
+    _backfill_cost_allocation_statuses(session)
 
     session.exec(text("CREATE INDEX IF NOT EXISTS ix_cost_allocation_receipt ON cost_allocation (receipt_id)"))
     session.exec(text("CREATE INDEX IF NOT EXISTS ix_cost_allocation_cost_type ON cost_allocation (cost_type_id)"))
@@ -176,6 +197,7 @@ def _seed_defaults(session: Session) -> None:
     )
     session.exec(text("CREATE INDEX IF NOT EXISTS ix_cost_allocation_project ON cost_allocation (project_id)"))
     session.exec(text("CREATE INDEX IF NOT EXISTS ix_cost_allocation_cost_area ON cost_allocation (cost_area_id)"))
+    session.exec(text("CREATE INDEX IF NOT EXISTS ix_cost_allocation_status ON cost_allocation (status)"))
     session.exec(text("CREATE INDEX IF NOT EXISTS ix_cost_area_name ON cost_area (name)"))
     session.exec(text("CREATE INDEX IF NOT EXISTS ix_cost_type_name ON cost_type (name)"))
     session.exec(text("CREATE INDEX IF NOT EXISTS ix_cost_subcategory_name ON cost_subcategory (name)"))
@@ -396,6 +418,58 @@ def _migration_0010_app_user_password_changed_at(session: Session) -> None:
         _add_column_if_missing(session, "app_user", user_columns, "password_changed_at", "TIMESTAMP")
 
 
+def _migration_0011_cost_allocation_status(session: Session) -> None:
+    cost_allocation_columns = _get_table_columns(session, "cost_allocation")
+    if not cost_allocation_columns:
+        return
+
+    table_info = {str(row[1]).casefold(): row for row in session.exec(text("PRAGMA table_info(cost_allocation)")).all()}
+    cost_type_info = table_info.get("cost_type_id")
+    status_missing = "status" not in cost_allocation_columns
+    cost_type_not_nullable = bool(cost_type_info and int(cost_type_info[3]))
+
+    if not status_missing and not cost_type_not_nullable:
+        return
+
+    status_select = "status" if "status" in cost_allocation_columns else f"'{COST_ALLOCATION_STATUS_POSTED}'"
+    session.exec(text("DROP TABLE IF EXISTS cost_allocation__new"))
+    session.exec(
+        text(
+            f"""
+            CREATE TABLE cost_allocation__new (
+                id INTEGER PRIMARY KEY,
+                receipt_id INTEGER NOT NULL,
+                cost_type_id INTEGER,
+                cost_subcategory_id INTEGER,
+                project_id INTEGER,
+                cost_area_id INTEGER,
+                amount_cents INTEGER NOT NULL DEFAULT 0,
+                position INTEGER NOT NULL DEFAULT 1,
+                status TEXT NOT NULL DEFAULT '{COST_ALLOCATION_STATUS_POSTED}',
+                created_at TIMESTAMP NOT NULL,
+                updated_at TIMESTAMP NOT NULL
+            )
+            """
+        )
+    )
+    session.exec(
+        text(
+            f"""
+            INSERT INTO cost_allocation__new (
+                id, receipt_id, cost_type_id, cost_subcategory_id, project_id, cost_area_id,
+                amount_cents, position, status, created_at, updated_at
+            )
+            SELECT
+                id, receipt_id, cost_type_id, cost_subcategory_id, project_id, cost_area_id,
+                amount_cents, position, {status_select}, created_at, updated_at
+            FROM cost_allocation
+            """
+        )
+    )
+    session.exec(text("DROP TABLE cost_allocation"))
+    session.exec(text("ALTER TABLE cost_allocation__new RENAME TO cost_allocation"))
+
+
 MIGRATIONS: tuple[MigrationStep, ...] = (
     MigrationStep(
         migration_id="0001_receipt_document_type_and_notes",
@@ -446,6 +520,11 @@ MIGRATIONS: tuple[MigrationStep, ...] = (
         migration_id="0010_app_user_password_changed_at",
         description="Add password_changed_at for auth session invalidation.",
         apply=_migration_0010_app_user_password_changed_at,
+    ),
+    MigrationStep(
+        migration_id="0011_cost_allocation_status",
+        description="Add draft or posted status to cost allocations and allow nullable cost_type_id.",
+        apply=_migration_0011_cost_allocation_status,
     ),
 )
 
@@ -514,6 +593,24 @@ def _add_column_if_missing(session: Session, table_name: str, existing_columns: 
     existing_columns.add(column_name.casefold())
 
 
+def _column_info(session: Session, table_name: str, column_name: str) -> tuple | None:
+    for row in session.exec(text(f"PRAGMA table_info({table_name})")).all():
+        if str(row[1]).strip().casefold() == column_name.casefold():
+            return row
+    return None
+
+
+def _backfill_cost_allocation_statuses(session: Session) -> None:
+    completion_service = ReceiptCompletionService()
+    receipts = list(session.exec(select(Receipt).order_by(Receipt.id)).all())
+    for receipt in receipts:
+        result = completion_service.evaluate_receipt(receipt)
+        allocation_status = result.allocation_status_to_persist
+        for allocation in receipt.allocations:
+            allocation.status = allocation_status
+            session.add(allocation)
+
+
 def _validate_required_columns(session: Session, table_name: str, required_columns: tuple[str, ...]) -> None:
     existing_columns = _get_table_columns(session, table_name)
     missing_columns = [column for column in required_columns if column not in existing_columns]
@@ -521,6 +618,18 @@ def _validate_required_columns(session: Session, table_name: str, required_colum
         missing = ", ".join(missing_columns)
         raise DatabaseMigrationError(
             f"Schema validation failed for table '{table_name}': missing columns {missing}"
+        )
+
+
+def _validate_column_nullable(session: Session, table_name: str, column_name: str) -> None:
+    info = _column_info(session, table_name, column_name)
+    if info is None:
+        raise DatabaseMigrationError(
+            f"Schema validation failed for table '{table_name}': missing column {column_name}"
+        )
+    if int(info[3]):
+        raise DatabaseMigrationError(
+            f"Schema validation failed for table '{table_name}': column {column_name} must allow NULL"
         )
 
 
@@ -550,7 +659,8 @@ def _validate_schema_state(session: Session) -> None:
     _validate_required_columns(session, "cost_area", ("color", "icon", "active"))
     _validate_required_columns(session, "project", ("color", "active", "price_cents", "cover_image_path", "created_on"))
     _validate_required_columns(session, "cost_subcategory", ("active", "archived_with_parent", "created_at", "updated_at"))
-    _validate_required_columns(session, "cost_allocation", ("cost_subcategory_id", "created_at", "updated_at"))
+    _validate_required_columns(session, "cost_allocation", ("cost_subcategory_id", "status", "created_at", "updated_at"))
+    _validate_column_nullable(session, "cost_allocation", "cost_type_id")
     _validate_required_columns(session, "contact_category", ("icon",))
     _validate_required_columns(
         session,

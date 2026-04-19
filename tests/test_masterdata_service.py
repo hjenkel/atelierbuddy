@@ -543,6 +543,52 @@ def test_delete_project_rejects_existing_allocations() -> None:
         assert session.get(Project, project.id) is not None
 
 
+def test_delete_project_ignores_draft_allocations() -> None:
+    service, engine = _build_service()
+    category, _ = service.create_or_update_cost_type(name="Material", icon="category")
+    project, _ = service.create_or_update_project(
+        name="Entwurfsprojekt",
+        active=True,
+        price_cents=99000,
+        created_on=None,
+    )
+    assert category.id is not None
+    assert project.id is not None
+
+    with Session(engine) as session:
+        subcategory = session.exec(
+            select(CostSubcategory).where(CostSubcategory.cost_type_id == category.id)
+        ).first()
+        assert subcategory is not None
+        receipt = Receipt(
+            original_filename="beleg.pdf",
+            archive_path="/tmp/beleg.pdf",
+            amount_gross_cents=1000,
+            document_type="invoice",
+            status="done",
+        )
+        session.add(receipt)
+        session.flush()
+        assert receipt.id is not None
+        session.add(
+            CostAllocation(
+                receipt_id=receipt.id,
+                cost_type_id=category.id,
+                cost_subcategory_id=subcategory.id,
+                project_id=project.id,
+                amount_cents=1000,
+                position=1,
+                status="draft",
+            )
+        )
+        session.commit()
+
+    service.delete_project(project_id=project.id)
+
+    with Session(engine) as session:
+        assert session.get(Project, project.id) is None
+
+
 def test_delete_project_rejects_existing_order_items() -> None:
     service, engine = _build_service()
     category, _ = service.create_or_update_contact_category(name="Interessent / Kunde", icon="handshake")
@@ -646,3 +692,39 @@ def test_cost_type_primary_action_archives_used_type() -> None:
         updated = session.get(CostType, category.id)
         assert updated is not None
         assert updated.active is False
+
+
+def test_cost_type_primary_action_ignores_draft_allocations() -> None:
+    service, engine = _build_service()
+    category, _ = service.create_or_update_cost_type(name="Cloud", icon="cloud")
+    assert category.id is not None
+
+    with Session(engine) as session:
+        subcategory = session.exec(
+            select(CostSubcategory).where(CostSubcategory.cost_type_id == category.id)
+        ).first()
+        assert subcategory is not None
+        receipt = Receipt(
+            original_filename="beleg.pdf",
+            archive_path="/tmp/beleg.pdf",
+            amount_gross_cents=1000,
+            document_type="invoice",
+            status="done",
+        )
+        session.add(receipt)
+        session.flush()
+        assert receipt.id is not None
+        session.add(
+            CostAllocation(
+                receipt_id=receipt.id,
+                cost_type_id=category.id,
+                cost_subcategory_id=subcategory.id,
+                amount_cents=1000,
+                position=1,
+                status="draft",
+            )
+        )
+        session.commit()
+
+    action = service.archive_or_delete_cost_type(category_id=category.id)
+    assert action == "deleted"
