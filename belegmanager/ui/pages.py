@@ -4405,6 +4405,15 @@ def register_pages(services: ServiceContainer) -> None:
                                 "price": _format_cents(project.price_cents, settings.default_currency),
                                 "created_on": project.created_on.isoformat() if project.created_on else "-",
                                 "status": "aktiv" if project.active else "inaktiv",
+                                "mobile_title": project.name,
+                                "mobile_title_note": "Cover hinterlegt" if project.cover_image_path else "Kein Cover",
+                                "mobile_primary_left": (
+                                    f"Erschaffen am {project.created_on.isoformat()}" if project.created_on else "Erschaffen am -"
+                                ),
+                                "mobile_primary_right": _format_cents(project.price_cents, settings.default_currency),
+                                "mobile_secondary": "aktiv" if project.active else "inaktiv",
+                                "mobile_badge": "aktiv" if project.active else "inaktiv",
+                                "mobile_badge_color": "positive" if project.active else "grey-7",
                             }
                             for project in projects
                             if project.id is not None
@@ -4429,7 +4438,33 @@ def register_pages(services: ServiceContainer) -> None:
                             {"name": "status", "label": "Status", "field": "status", "align": "left"},
                             {"name": "actions", "label": "Aktionen", "field": "actions", "align": "right"},
                         ]
-                        table = _erp_table(columns=columns, rows=rows, row_key="id", rows_per_page=20)
+                        actions_menu = """
+                        <q-btn flat round dense icon="more_vert" @click.stop>
+                          <q-menu auto-close>
+                            <q-list dense style="min-width: 220px">
+                              <q-item clickable @click="$parent.$emit('detail_action', props.row)">
+                                <q-item-section avatar><q-icon name="visibility" /></q-item-section>
+                                <q-item-section><q-item-label>Details anzeigen</q-item-label></q-item-section>
+                              </q-item>
+                              <q-item clickable @click="$parent.$emit('cover_action', props.row)">
+                                <q-item-section avatar><q-icon name="image" /></q-item-section>
+                                <q-item-section><q-item-label>Cover setzen</q-item-label></q-item-section>
+                              </q-item>
+                              <q-item clickable @click="$parent.$emit('delete_action', props.row)">
+                                <q-item-section avatar><q-icon name="delete" color="negative" /></q-item-section>
+                                <q-item-section><q-item-label>Projekt löschen</q-item-label></q-item-section>
+                              </q-item>
+                            </q-list>
+                          </q-menu>
+                        </q-btn>
+                        """
+                        table = _responsive_erp_table(
+                            columns=columns,
+                            rows=rows,
+                            row_key="id",
+                            rows_per_page=20,
+                            mobile_actions_slot=actions_menu,
+                        )
                         table.add_slot(
                             "body-cell-cover",
                             """
@@ -4451,26 +4486,9 @@ def register_pages(services: ServiceContainer) -> None:
                         )
                         table.add_slot(
                             "body-cell-actions",
-                            """
+                            f"""
                             <q-td :props="props" class="text-right">
-                              <q-btn flat round dense icon="more_vert" @click.stop>
-                                <q-menu auto-close>
-                                  <q-list dense style="min-width: 220px">
-                                    <q-item clickable @click="$parent.$emit('detail_action', props.row)">
-                                      <q-item-section avatar><q-icon name="visibility" /></q-item-section>
-                                      <q-item-section><q-item-label>Details anzeigen</q-item-label></q-item-section>
-                                    </q-item>
-                                    <q-item clickable @click="$parent.$emit('cover_action', props.row)">
-                                      <q-item-section avatar><q-icon name="image" /></q-item-section>
-                                      <q-item-section><q-item-label>Cover setzen</q-item-label></q-item-section>
-                                    </q-item>
-                                    <q-item clickable @click="$parent.$emit('delete_action', props.row)">
-                                      <q-item-section avatar><q-icon name="delete" color="negative" /></q-item-section>
-                                      <q-item-section><q-item-label>Projekt löschen</q-item-label></q-item-section>
-                                    </q-item>
-                                  </q-list>
-                                </q-menu>
-                              </q-btn>
+                              {actions_menu}
                             </q-td>
                             """,
                         )
@@ -5061,6 +5079,12 @@ def register_pages(services: ServiceContainer) -> None:
                                 "name": category.name,
                                 "icon": category.icon or DEFAULT_CONTACT_CATEGORY_ICON,
                                 "used": (category.id in used_category_ids) if category.id is not None else False,
+                                "mobile_title": category.name,
+                                "mobile_primary_left": "Kontaktkategorie",
+                                "mobile_primary_right": "verwendet" if (category.id in used_category_ids) else "frei",
+                                "mobile_secondary": f"Symbol: {category.icon or DEFAULT_CONTACT_CATEGORY_ICON}",
+                                "mobile_badge": "verwendet" if (category.id in used_category_ids) else "frei",
+                                "mobile_badge_color": "warning" if (category.id in used_category_ids) else "positive",
                             }
                             for category in categories
                             if category.id is not None
@@ -5071,7 +5095,29 @@ def register_pages(services: ServiceContainer) -> None:
                             {"name": "used", "label": "Verwendet", "field": "used", "align": "left"},
                             {"name": "actions", "label": "Aktionen", "field": "actions", "align": "right"},
                         ]
-                        table = _erp_table(columns=columns, rows=rows, row_key="id", rows_per_page=20)
+                        actions_menu = """
+                        <q-btn flat round dense icon="more_vert" @click.stop>
+                          <q-menu auto-close>
+                            <q-list dense style="min-width: 240px">
+                              <q-item clickable @click="$parent.$emit('edit_action', props.row)">
+                                <q-item-section avatar><q-icon name="edit" /></q-item-section>
+                                <q-item-section><q-item-label>Bearbeiten</q-item-label></q-item-section>
+                              </q-item>
+                              <q-item clickable @click="$parent.$emit('delete_action', props.row)">
+                                <q-item-section avatar><q-icon name="delete" color="negative" /></q-item-section>
+                                <q-item-section><q-item-label>Löschen</q-item-label></q-item-section>
+                              </q-item>
+                            </q-list>
+                          </q-menu>
+                        </q-btn>
+                        """
+                        table = _responsive_erp_table(
+                            columns=columns,
+                            rows=rows,
+                            row_key="id",
+                            rows_per_page=20,
+                            mobile_actions_slot=actions_menu,
+                        )
                         table.add_slot(
                             "body-cell-icon",
                             """
@@ -5092,22 +5138,9 @@ def register_pages(services: ServiceContainer) -> None:
                         )
                         table.add_slot(
                             "body-cell-actions",
-                            """
+                            f"""
                             <q-td :props="props" class="text-right">
-                              <q-btn flat round dense icon="more_vert" @click.stop>
-                                <q-menu auto-close>
-                                  <q-list dense style="min-width: 240px">
-                                    <q-item clickable @click="$parent.$emit('edit_action', props.row)">
-                                      <q-item-section avatar><q-icon name="edit" /></q-item-section>
-                                      <q-item-section><q-item-label>Bearbeiten</q-item-label></q-item-section>
-                                    </q-item>
-                                    <q-item clickable @click="$parent.$emit('delete_action', props.row)">
-                                      <q-item-section avatar><q-icon name="delete" color="negative" /></q-item-section>
-                                      <q-item-section><q-item-label>Löschen</q-item-label></q-item-section>
-                                    </q-item>
-                                  </q-list>
-                                </q-menu>
-                              </q-btn>
+                              {actions_menu}
                             </q-td>
                             """,
                         )
@@ -5215,6 +5248,12 @@ def register_pages(services: ServiceContainer) -> None:
                                 "id": supplier.id,
                                 "name": supplier.name,
                                 "status": "aktiv" if supplier.active else "inaktiv",
+                                "mobile_title": supplier.name,
+                                "mobile_primary_left": "Anbieter",
+                                "mobile_primary_right": "aktiv" if supplier.active else "inaktiv",
+                                "mobile_secondary": "Stammdatensatz",
+                                "mobile_badge": "aktiv" if supplier.active else "inaktiv",
+                                "mobile_badge_color": "positive" if supplier.active else "grey-7",
                             }
                             for supplier in suppliers
                             if supplier.id is not None
@@ -5224,25 +5263,34 @@ def register_pages(services: ServiceContainer) -> None:
                             {"name": "status", "label": "Status", "field": "status", "align": "left"},
                             {"name": "actions", "label": "Aktionen", "field": "actions", "align": "right"},
                         ]
-                        table = _erp_table(columns=columns, rows=rows, row_key="id", rows_per_page=20)
+                        actions_menu = """
+                        <q-btn flat round dense icon="more_vert" @click.stop>
+                          <q-menu auto-close>
+                            <q-list dense style="min-width: 220px">
+                              <q-item clickable @click="$parent.$emit('edit_action', props.row)">
+                                <q-item-section avatar><q-icon name="edit" /></q-item-section>
+                                <q-item-section><q-item-label>Bearbeiten</q-item-label></q-item-section>
+                              </q-item>
+                              <q-item clickable @click="$parent.$emit('delete_action', props.row)">
+                                <q-item-section avatar><q-icon name="delete" color="negative" /></q-item-section>
+                                <q-item-section><q-item-label>Anbieter löschen</q-item-label></q-item-section>
+                              </q-item>
+                            </q-list>
+                          </q-menu>
+                        </q-btn>
+                        """
+                        table = _responsive_erp_table(
+                            columns=columns,
+                            rows=rows,
+                            row_key="id",
+                            rows_per_page=20,
+                            mobile_actions_slot=actions_menu,
+                        )
                         table.add_slot(
                             "body-cell-actions",
-                            """
+                            f"""
                             <q-td :props="props" class="text-right">
-                              <q-btn flat round dense icon="more_vert" @click.stop>
-                                <q-menu auto-close>
-                                  <q-list dense style="min-width: 220px">
-                                    <q-item clickable @click="$parent.$emit('edit_action', props.row)">
-                                      <q-item-section avatar><q-icon name="edit" /></q-item-section>
-                                      <q-item-section><q-item-label>Bearbeiten</q-item-label></q-item-section>
-                                    </q-item>
-                                    <q-item clickable @click="$parent.$emit('delete_action', props.row)">
-                                      <q-item-section avatar><q-icon name="delete" color="negative" /></q-item-section>
-                                      <q-item-section><q-item-label>Anbieter löschen</q-item-label></q-item-section>
-                                    </q-item>
-                                  </q-list>
-                                </q-menu>
-                              </q-btn>
+                              {actions_menu}
                             </q-td>
                             """,
                         )
@@ -5571,6 +5619,17 @@ def register_pages(services: ServiceContainer) -> None:
                                     if category_view_mode == "archived"
                                     else ("warning" if category.id in used_category_ids else "negative")
                                 ),
+                                "mobile_title": category.name,
+                                "mobile_title_note": f"{subcategory_count.get(category.id or -1, 0)} Unterkategorien",
+                                "mobile_primary_left": "aktiv" if category.active else "archiviert",
+                                "mobile_primary_right": f"{subcategory_count.get(category.id or -1, 0)} Unterkategorien",
+                                "mobile_secondary": (
+                                    "Wird verwendet und wird archiviert."
+                                    if (category.id in used_category_ids and category.active)
+                                    else category.name
+                                ),
+                                "mobile_badge": "aktiv" if category.active else "archiviert",
+                                "mobile_badge_color": "positive" if category.active else "grey-7",
                             }
                             for category in categories
                             if category.id is not None
@@ -5593,7 +5652,32 @@ def register_pages(services: ServiceContainer) -> None:
                             {"name": "status", "label": "Status", "field": "status", "align": "left"},
                             {"name": "actions", "label": "Aktionen", "field": "actions", "align": "right"},
                         ]
-                        table = _erp_table(columns=columns, rows=rows, row_key="id", rows_per_page=20)
+                        actions_menu = """
+                        <q-btn flat round dense icon="more_vert" @click.stop>
+                          <q-menu auto-close>
+                            <q-list dense style="min-width: 240px">
+                              <q-item clickable @click="$parent.$emit('edit_action', props.row)">
+                                <q-item-section avatar><q-icon name="edit" /></q-item-section>
+                                <q-item-section><q-item-label>Bearbeiten</q-item-label></q-item-section>
+                              </q-item>
+                              <q-item clickable @click="$parent.$emit('primary_action', props.row)">
+                                <q-item-section avatar><q-icon :name="props.row.primary_icon" :color="props.row.primary_color" /></q-item-section>
+                                <q-item-section>
+                                  <q-item-label>{{ props.row.primary_label }}</q-item-label>
+                                  <q-item-label v-if="props.row.used && props.row.status === 'aktiv'" caption>Wird verwendet und wird archiviert.</q-item-label>
+                                </q-item-section>
+                              </q-item>
+                            </q-list>
+                          </q-menu>
+                        </q-btn>
+                        """
+                        table = _responsive_erp_table(
+                            columns=columns,
+                            rows=rows,
+                            row_key="id",
+                            rows_per_page=20,
+                            mobile_actions_slot=actions_menu,
+                        )
                         table.add_slot(
                             "body-cell-icon",
                             """
@@ -5614,25 +5698,9 @@ def register_pages(services: ServiceContainer) -> None:
                         )
                         table.add_slot(
                             "body-cell-actions",
-                            """
+                            f"""
                             <q-td :props="props" class="text-right">
-                              <q-btn flat round dense icon="more_vert" @click.stop>
-                                <q-menu auto-close>
-                                  <q-list dense style="min-width: 240px">
-                                    <q-item clickable @click="$parent.$emit('edit_action', props.row)">
-                                      <q-item-section avatar><q-icon name="edit" /></q-item-section>
-                                      <q-item-section><q-item-label>Bearbeiten</q-item-label></q-item-section>
-                                    </q-item>
-                                    <q-item clickable @click="$parent.$emit('primary_action', props.row)">
-                                      <q-item-section avatar><q-icon :name="props.row.primary_icon" :color="props.row.primary_color" /></q-item-section>
-                                      <q-item-section>
-                                        <q-item-label>{{ props.row.primary_label }}</q-item-label>
-                                        <q-item-label v-if="props.row.used && props.row.status === 'aktiv'" caption>Wird verwendet und wird archiviert.</q-item-label>
-                                      </q-item-section>
-                                    </q-item>
-                                  </q-list>
-                                </q-menu>
-                              </q-btn>
+                              {actions_menu}
                             </q-td>
                             """,
                         )
@@ -5723,6 +5791,10 @@ def register_pages(services: ServiceContainer) -> None:
                                     "name": item.cost_subcategory_name,
                                     "total": _format_cents(item.total_cents, settings.default_currency),
                                     "total_class": direction_color,
+                                    "mobile_title": item.cost_subcategory_name,
+                                    "mobile_primary_left": "Unterkategorie",
+                                    "mobile_primary_right": _format_cents(item.total_cents, settings.default_currency),
+                                    "mobile_secondary": "Summiert im gewählten Zeitraum",
                                 }
                             )
                         columns = [
@@ -5735,7 +5807,7 @@ def register_pages(services: ServiceContainer) -> None:
                                 "sortable": True,
                             },
                         ]
-                        table = _erp_table(columns=columns, rows=rows, row_key="id", rows_per_page=20)
+                        table = _responsive_erp_table(columns=columns, rows=rows, row_key="id", rows_per_page=20)
                         table.add_slot(
                             "body-cell-total",
                             """
@@ -5773,6 +5845,10 @@ def register_pages(services: ServiceContainer) -> None:
                                 "invoice_date": item.invoice_date.isoformat(),
                                 "total": _format_cents(item.total_cents, settings.default_currency),
                                 "total_class": income_amount_class(item.total_cents),
+                                "mobile_title": item.internal_number,
+                                "mobile_primary_left": item.contact_name,
+                                "mobile_primary_right": _format_cents(item.total_cents, settings.default_currency),
+                                "mobile_secondary": f"Rechnungsdatum {item.invoice_date.isoformat()}",
                             }
                             for item in rows_raw
                         ]
@@ -5787,7 +5863,7 @@ def register_pages(services: ServiceContainer) -> None:
                                 "align": "right",
                             },
                         ]
-                        table = _erp_table(columns=columns, rows=rows, row_key="id", rows_per_page=20)
+                        table = _responsive_erp_table(columns=columns, rows=rows, row_key="id", rows_per_page=20)
                         table.add_slot(
                             "body-cell-total",
                             """
@@ -5837,6 +5913,10 @@ def register_pages(services: ServiceContainer) -> None:
                                 "name": item.project_name,
                                 "total": _format_cents(item.total_cents, settings.default_currency),
                                 "total_class": income_amount_class(item.total_cents),
+                                "mobile_title": item.project_name,
+                                "mobile_primary_left": "Projekt",
+                                "mobile_primary_right": _format_cents(item.total_cents, settings.default_currency),
+                                "mobile_secondary": "Einnahmen im gewählten Zeitraum",
                             }
                             for item in income_report.totals_by_project
                         ]
@@ -5850,7 +5930,7 @@ def register_pages(services: ServiceContainer) -> None:
                                 "sortable": True,
                             },
                         ]
-                        table = _erp_table(columns=columns, rows=rows, row_key="id", rows_per_page=20)
+                        table = _responsive_erp_table(columns=columns, rows=rows, row_key="id", rows_per_page=20)
                         table.add_slot(
                             "body-cell-total",
                             """
@@ -5942,6 +6022,10 @@ def register_pages(services: ServiceContainer) -> None:
                                         "name": item.cost_type_name,
                                         "total": _format_cents(item.total_cents, settings.default_currency),
                                         "total_class": direction_color,
+                                        "mobile_title": item.cost_type_name,
+                                        "mobile_primary_left": "Kostenkategorie",
+                                        "mobile_primary_right": _format_cents(item.total_cents, settings.default_currency),
+                                        "mobile_secondary": "Ausgaben im gewählten Zeitraum",
                                     }
                                 )
                             columns = [
@@ -5960,7 +6044,7 @@ def register_pages(services: ServiceContainer) -> None:
                                     "sortable": True,
                                 },
                             ]
-                            table = _erp_table(columns=columns, rows=rows, row_key="id", rows_per_page=20)
+                            table = _responsive_erp_table(columns=columns, rows=rows, row_key="id", rows_per_page=20)
                             table.add_slot(
                                 "body-cell-total",
                                 """
@@ -6368,6 +6452,10 @@ def register_pages(services: ServiceContainer) -> None:
                                     "license": item.license,
                                     "source_label": "Öffnen" if item.homepage else "-",
                                     "source_url": item.homepage or "",
+                                    "mobile_title": item.name,
+                                    "mobile_primary_left": f"Version {item.version}",
+                                    "mobile_primary_right": item.license,
+                                    "mobile_secondary": item.homepage or "Keine Quelle hinterlegt",
                                 }
                                 for idx, item in enumerate(notices, start=1)
                             ]
@@ -6377,7 +6465,7 @@ def register_pages(services: ServiceContainer) -> None:
                                 {"name": "license", "label": "Lizenz", "field": "license", "align": "left", "sortable": True},
                                 {"name": "source_label", "label": "Quelle", "field": "source_label", "align": "left"},
                             ]
-                            table = _erp_table(columns=columns, rows=rows, row_key="id", rows_per_page=15).classes(
+                            table = _responsive_erp_table(columns=columns, rows=rows, row_key="id", rows_per_page=15).classes(
                                 "bm-licenses-table"
                             )
                             table.add_slot(
