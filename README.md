@@ -56,11 +56,8 @@ services:
     environment:
       BM_SESSION_SECRET: "HIER ZUFÄLLIGEN CODE EINGEBEN"
     volumes:
-      - atelier_buddy_data:/app/data
+      - ./data:/app/data
     restart: unless-stopped
-
-volumes:
-  atelier_buddy_data:
 ```
 
 Start oder Update auf dem Server:
@@ -73,7 +70,7 @@ docker compose up -d
 
 Hinweise:
 - Die App ist danach standardmäßig unter `http://hostname:12321` erreichbar.
-- Persistente Daten liegen im Volume unter `/app/data`.
+- Persistente Daten liegen im gemounteten Host-Verzeichnis `./data`, das im Container unter `/app/data` eingebunden ist.
 - Für reproduzierbare Releases kann statt `latest` auch ein Versions-Tag wie `ghcr.io/hjenkel/atelierbuddy:0.3.3` verwendet werden.
 
 ## Lokale Installation

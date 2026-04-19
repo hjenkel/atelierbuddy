@@ -131,7 +131,7 @@ def _notice_from_dict(data: dict[str, Any]) -> ThirdPartyNotice:
 
 
 def get_third_party_notices(force_refresh: bool = False, cache_path: Path | None = None) -> list[ThirdPartyNotice]:
-    path = cache_path or (settings.data_dir / THIRD_PARTY_CACHE_FILENAME)
+    path = cache_path or (settings.assets_dir / THIRD_PARTY_CACHE_FILENAME)
     if not force_refresh and path.exists():
         try:
             payload = json.loads(path.read_text(encoding="utf-8"))

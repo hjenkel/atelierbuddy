@@ -25,7 +25,8 @@ Einfaches Backup:
 tar -czf atelierbuddy-backup-$(date +%Y-%m-%d).tar.gz data
 ```
 
-Im Docker-Betrieb mit benanntem Volume sollte das Volume bzw. der gemountete Datenpfad gesichert werden.
+Im Docker-Betrieb mit der empfohlenen Compose-Datei solltest du den Ordner `./data` sichern.
+Das ist der Ordner neben deiner `docker-compose.yml`.
 
 ## Docker Compose mit lokalem Build
 Diese Variante baut das Image direkt aus dem ausgecheckten Repository. Sie eignet sich für Entwicklung, Tests oder für Installationen, bei denen bewusst der lokale Quellcode verwendet werden soll.
@@ -42,10 +43,11 @@ docker compose up --build -d
 Hinweise:
 - Diese Variante nutzt die im Repository enthaltene [docker-compose.yml](./../docker-compose.yml).
 - Änderungen am lokalen Code können durch ein erneutes `docker compose up --build -d` ins Image übernommen werden.
-- Auch hier bleiben Daten im Volume `atelier_buddy_data` erhalten.
+- Auch hier bleiben Daten im Ordner `./data` erhalten.
 
 ### Daten, Volumes und Backups im Docker-Betrieb
-Im Docker-Betrieb liegen die persistenten Anwendungsdaten nicht im Container selbst, sondern im Volume oder im gemounteten Datenpfad unter `/app/data`.
+Im Docker-Betrieb liegen die persistenten Anwendungsdaten nicht im Container selbst.
+Sie liegen im Host-Ordner `./data`, der im Container nach `/app/data` gemountet wird.
 
 Dazu gehören insbesondere:
 - die SQLite-Datenbank
@@ -53,8 +55,8 @@ Dazu gehören insbesondere:
 - erzeugte Thumbnails und OCR-Artefakte
 
 Wichtig:
-- Container können jederzeit neu erstellt werden, ohne dass diese Daten verloren gehen, solange das Volume erhalten bleibt.
-- Backups sollten unbedingt das Volume beziehungsweise den Datenpfad sichern.
+- Container können jederzeit neu erstellt werden, ohne dass diese Daten verloren gehen, solange der Ordner `./data` erhalten bleibt.
+- Für ein Backup reicht es, den Ordner `./data` zu sichern.
 
 ### Ersteinrichtung nach der Installation
 Beim ersten Start wird im Browser direkt der User angelegt.

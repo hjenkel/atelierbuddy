@@ -8,8 +8,5 @@ services:
     environment:
       BM_SESSION_SECRET: "${BM_SESSION_SECRET:-}"
     volumes:
-      - atelier_buddy_data:/app/data
+      - ./data:/app/data
     restart: unless-stopped
-
-volumes:
-  atelier_buddy_data:
