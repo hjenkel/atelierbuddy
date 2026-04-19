@@ -44,6 +44,11 @@ Hinweise:
 - Diese Variante nutzt die im Repository enthaltene [docker-compose.yml](./../docker-compose.yml).
 - Änderungen am lokalen Code können durch ein erneutes `docker compose up --build -d` ins Image übernommen werden.
 - Auch hier bleiben Daten im Ordner `./data` erhalten.
+- Falls beim ersten Start ein Berechtigungsfehler für `/app/data` erscheint, hilft auf Linux meist:
+
+```bash
+sudo chown -R 10001:10001 data
+```
 
 ### Daten, Volumes und Backups im Docker-Betrieb
 Im Docker-Betrieb liegen die persistenten Anwendungsdaten nicht im Container selbst.

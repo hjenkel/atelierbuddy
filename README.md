@@ -71,6 +71,7 @@ docker compose up -d
 Hinweise:
 - Die App ist danach standardmäßig unter `http://hostname:12321` erreichbar.
 - Persistente Daten liegen im gemounteten Host-Verzeichnis `./data`, das im Container unter `/app/data` eingebunden ist.
+- Falls Docker beim ersten Start einen Berechtigungsfehler für `/app/data` meldet, hilft auf Linux meist: `sudo chown -R 10001:10001 data`
 - Für reproduzierbare Releases kann statt `latest` auch ein Versions-Tag wie `ghcr.io/hjenkel/atelierbuddy:0.3.3` verwendet werden.
 
 ## Lokale Installation
