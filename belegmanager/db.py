@@ -470,6 +470,12 @@ def _migration_0011_cost_allocation_status(session: Session) -> None:
     session.exec(text("ALTER TABLE cost_allocation__new RENAME TO cost_allocation"))
 
 
+def _migration_0012_project_notes(session: Session) -> None:
+    project_columns = _get_table_columns(session, "project")
+    if project_columns:
+        _add_column_if_missing(session, "project", project_columns, "notes", "TEXT")
+
+
 MIGRATIONS: tuple[MigrationStep, ...] = (
     MigrationStep(
         migration_id="0001_receipt_document_type_and_notes",
@@ -525,6 +531,11 @@ MIGRATIONS: tuple[MigrationStep, ...] = (
         migration_id="0011_cost_allocation_status",
         description="Add draft or posted status to cost allocations and allow nullable cost_type_id.",
         apply=_migration_0011_cost_allocation_status,
+    ),
+    MigrationStep(
+        migration_id="0012_project_notes",
+        description="Add notes field to projects.",
+        apply=_migration_0012_project_notes,
     ),
 )
 
@@ -657,7 +668,7 @@ def _validate_schema_state(session: Session) -> None:
     )
     _validate_required_columns(session, "cost_type", ("color", "icon", "active"))
     _validate_required_columns(session, "cost_area", ("color", "icon", "active"))
-    _validate_required_columns(session, "project", ("color", "active", "price_cents", "cover_image_path", "created_on"))
+    _validate_required_columns(session, "project", ("color", "active", "price_cents", "cover_image_path", "created_on", "notes"))
     _validate_required_columns(session, "cost_subcategory", ("active", "archived_with_parent", "created_at", "updated_at"))
     _validate_required_columns(session, "cost_allocation", ("cost_subcategory_id", "status", "created_at", "updated_at"))
     _validate_column_nullable(session, "cost_allocation", "cost_type_id")

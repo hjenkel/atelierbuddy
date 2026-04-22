@@ -4,6 +4,15 @@ Alle wichtigen Änderungen an diesem Projekt werden in dieser Datei dokumentiert
 
 Das Format orientiert sich an Keep a Changelog, und dieses Projekt folgt Semantic Versioning (`0.y.z` vor `1.0`).
 
+## [0.3.6] - Noch nicht released
+### Hinzugefügt
+- Projekte verfügen jetzt über ein eigenes Notizfeld.
+
+### Geändert
+- Projektdetailansicht: Toolbar mit Abbrechen-, Löschen- und Speichern-Icon-Buttons ohne Text.
+- Fix: Projekt-Speicherflow korrigiert: Speichern reagiert wieder zuverlässig, zeigt Feedback an und navigiert danach wie erwartet zurück zur Projektübersicht.
+- Projekt-Löschaktion in der Detailansicht liefert jetzt wieder konsistentes UI-Feedback und Navigation.
+
 ## [0.3.5] - 2026-04-22
 ### Geändert
 - Dashboard-Importdialog bereinigt: Der Datei-Upload lässt sich wieder zuverlässig direkt aus dem Dashboard öffnen und verwenden.

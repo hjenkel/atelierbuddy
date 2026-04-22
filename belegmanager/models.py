@@ -137,6 +137,7 @@ class Project(SQLModel, table=True):
     price_cents: Optional[int] = Field(default=None)
     cover_image_path: Optional[str] = Field(default=None)
     created_on: Optional[date] = Field(default=None, index=True)
+    notes: Optional[str] = Field(default=None)
 
     allocations: List["CostAllocation"] = Relationship(back_populates="project")
     order_items: List["OrderItem"] = Relationship(back_populates="project")

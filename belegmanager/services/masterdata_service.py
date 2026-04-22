@@ -20,6 +20,7 @@ class MasterDataService:
     MIN_NAME_LENGTH = 2
     MAX_NAME_LENGTH = 120
     MAX_CONTACT_FIELD_LENGTH = 255
+    MAX_NOTES_LENGTH = 5000
 
     def __init__(self, db_engine=engine) -> None:
         self._engine = db_engine
@@ -44,6 +45,14 @@ class MasterDataService:
             return None
         if len(text) > self.MAX_CONTACT_FIELD_LENGTH:
             raise ValueError(f"{label} darf maximal {self.MAX_CONTACT_FIELD_LENGTH} Zeichen lang sein")
+        return text
+
+    def _normalize_notes(self, value: str | None, *, label: str = "Notiz") -> str | None:
+        text = (value or "").strip()
+        if not text:
+            return None
+        if len(text) > self.MAX_NOTES_LENGTH:
+            raise ValueError(f"{label} darf maximal {self.MAX_NOTES_LENGTH} Zeichen lang sein")
         return text
 
     def _validate_contact_names(self, *, given_name: str | None, family_name: str | None) -> tuple[str | None, str | None]:
@@ -276,14 +285,17 @@ class MasterDataService:
         active: bool,
         price_cents: int | None,
         created_on: date | None,
+        notes: str | None = None,
     ) -> tuple[Project, bool]:
         normalized_name = self._normalize_name(name, label="Projektname")
+        normalized_notes = self._normalize_notes(notes)
         with Session(self._engine) as session:
             existing = session.exec(select(Project).where(func.lower(Project.name) == normalized_name.casefold())).first()
             if existing:
                 existing.active = bool(active)
                 existing.price_cents = price_cents
                 existing.created_on = created_on
+                existing.notes = normalized_notes
                 session.add(existing)
                 session.commit()
                 session.refresh(existing)
@@ -295,6 +307,7 @@ class MasterDataService:
                 active=bool(active),
                 price_cents=price_cents,
                 created_on=created_on,
+                notes=normalized_notes,
             )
             session.add(project)
             session.commit()
@@ -309,8 +322,10 @@ class MasterDataService:
         active: bool,
         price_cents: int | None,
         created_on: date | None,
+        notes: str | None = None,
     ) -> Project:
         normalized_name = self._normalize_name(name, label="Projektname")
+        normalized_notes = self._normalize_notes(notes)
         with Session(self._engine) as session:
             current = session.get(Project, project_id)
             if not current:
@@ -327,6 +342,7 @@ class MasterDataService:
             current.active = bool(active)
             current.price_cents = price_cents
             current.created_on = created_on
+            current.notes = normalized_notes
             session.add(current)
             session.commit()
             session.refresh(current)

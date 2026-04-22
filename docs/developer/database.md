@@ -1,7 +1,7 @@
 # Datenbankstruktur
 
 Quelle: `belegmanager/models.py`, `belegmanager/db.py`, `belegmanager/fts.py`  
-Version-Single-Source: `pyproject.toml` (`0.3.5`)
+Version-Single-Source: `pyproject.toml` (`0.3.6`)
 
 ## Überblick
 Atelier Buddy nutzt SQLite mit SQLModel/SQLAlchemy. Das Datenmodell ist auf lokale Nutzung, überschaubare Betriebsgröße und schnelle Iteration ausgelegt.
@@ -57,7 +57,7 @@ Verkaufskopf mit:
 - Soft-Delete
 
 In v0.2 gibt es kein separates Rechnungsobjekt. Verkauf und Ausgangsrechnung sind derselbe Datensatz; die Rechnungsdatei hängt direkt am Verkauf.
-Auch in `0.3.5` bleibt dieses Modell bewusst bestehen: automatische PDF-Erzeugung und manueller Upload arbeiten direkt auf demselben Dokument-Slot des Verkaufs.
+Auch in `0.3.6` bleibt dieses Modell bewusst bestehen: automatische PDF-Erzeugung und manueller Upload arbeiten direkt auf demselben Dokument-Slot des Verkaufs.
 
 ### `invoice_profile`
 Installweites Singleton für automatisch erzeugte Rechnungen mit:
@@ -80,7 +80,7 @@ Positionszeilen eines Verkaufs mit:
 Die Verkaufssumme wird nicht separat gespeichert, sondern aus diesen Positionen berechnet.
 
 ### Stammdaten
-- `project`: Projekte inkl. Farbe, optionalem Preis und optionalem Cover-Bild
+- `project`: Projekte inkl. Farbe, optionalem Preis, optionalem Cover-Bild und optionaler Notiz
 - `contact`: personenzentrierte Kontakte mit Pflichtregel "Vorname oder Nachname" sowie Adressfeldern für Straße, Hausnummer, Adresszusatz, PLZ, Ort und Land; neue Kontakte starten mit Land `DE`
 - `contact_category`: frei pflegbare Kontaktkategorien
 - `supplier`: Anbieter für Belege
@@ -124,6 +124,9 @@ Initialisierung über `db.init_db()`:
 6. Initialisierung von FTS
 7. Seeds für Default-Kontaktkategorien, Kostenkategorien, Unterkategorien und technische Kostenstelle
 8. Anlage wichtiger Indexe
+
+Aktueller Stand:
+- Projekte erhalten seit `0.3.6` ihr optionales Feld `notes` über eine additive interne Migration.
 
 Wichtig:
 - `data/schema_version.txt` ist keine Wahrheitsquelle für destruktive Aktionen mehr.

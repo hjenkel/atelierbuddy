@@ -2496,6 +2496,7 @@ def register_pages(services: ServiceContainer) -> None:
                                 name_input = ui.input("Projektname").classes("w-full")
                                 price_input = ui.input(f"Preis ({settings.default_currency}, optional)").classes("w-full")
                                 created_on_input = ui.input("Erschaffen am (optional)").props("type=date clearable").classes("w-full")
+                                notes_input = ui.textarea("Notiz", value="").props("rows=4").classes("w-full bm-order-notes")
                                 active_input = ui.checkbox("Aktiv", value=True)
 
                                 def save_project() -> None:
@@ -2509,6 +2510,7 @@ def register_pages(services: ServiceContainer) -> None:
                                             active=bool(active_input.value),
                                             price_cents=_parse_money_to_cents(price_input.value),
                                             created_on=_parse_iso_date(created_on_input.value),
+                                            notes=notes_input.value,
                                         )
                                         project_id = project.id
                                         ui.notify(
@@ -4611,6 +4613,7 @@ def register_pages(services: ServiceContainer) -> None:
                         name_input = ui.input("Projektname").classes("w-full")
                         price_input = ui.input(f"Preis ({settings.default_currency}, optional)").classes("w-full")
                         created_on_input = ui.input("Erschaffen am (optional)").props("type=date clearable").classes("w-full")
+                        notes_input = ui.textarea("Notiz", value="").props("rows=4").classes("w-full bm-order-notes")
                         active_input = ui.checkbox("Aktiv", value=True)
 
                         def add_project() -> None:
@@ -4624,6 +4627,7 @@ def register_pages(services: ServiceContainer) -> None:
                                     active=bool(active_input.value),
                                     price_cents=_parse_money_to_cents(price_input.value),
                                     created_on=_parse_iso_date(created_on_input.value),
+                                    notes=notes_input.value,
                                 )
                                 ui.notify(
                                     "Projekt angelegt" if created else "Projekt existierte bereits und wurde aktualisiert",
@@ -4846,6 +4850,7 @@ def register_pages(services: ServiceContainer) -> None:
                         active=bool(active_input.value),
                         price_cents=_parse_money_to_cents(price_input.value),
                         created_on=_parse_iso_date(created_on_input.value),
+                        notes=notes_input.value,
                     )
                     _notify_client(client, "Projekt gespeichert", type="positive")
                     await clean_and_navigate("/projekte")
@@ -4932,10 +4937,14 @@ def register_pages(services: ServiceContainer) -> None:
                             "Erschaffen am (optional)",
                             value=project.created_on.isoformat() if project.created_on else "",
                         ).props("type=date clearable").classes("w-full")
+                        notes_input = ui.textarea("Notiz", value=project.notes or "").props("rows=4").classes(
+                            "w-full bm-order-notes bm-form-field"
+                        )
                         active_input = ui.checkbox("Aktiv", value=project.active)
                         name_input.on("update:model-value", lambda _: mark_dirty())
                         price_input.on("update:model-value", lambda _: mark_dirty())
                         created_on_input.on("update:model-value", lambda _: mark_dirty())
+                        notes_input.on_value_change(lambda _: mark_dirty())
                         active_input.on("update:model-value", lambda _: mark_dirty())
                         mark_clean()
 

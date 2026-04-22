@@ -1,7 +1,7 @@
 # Prozesse und Flows
 
 Quelle: `belegmanager/services/*`, `belegmanager/ui/pages.py`, `belegmanager/app_state.py`, `belegmanager/receipt_completion.py`  
-Version-Single-Source: `pyproject.toml` (`0.3.5`)
+Version-Single-Source: `pyproject.toml` (`0.3.6`)
 
 ## Service-Architektur
 `app_state.get_services()` baut einen gemeinsamen Service-Container mit:
@@ -126,6 +126,11 @@ Zusätzliche Schutzregel:
 Wichtige Schutzregeln:
 - Kontakte dürfen nicht gelöscht werden, wenn Verkäufe referenzieren
 - Projekte dürfen nicht gelöscht werden, wenn Beleg-Zuordnungen oder Verkaufspositionen referenzieren
+
+Projekt-Detailverhalten seit `0.3.6`:
+- die Detailseite nutzt dieselbe Toolbar-Konvention wie die Verkaufsdetails
+- Speichern navigiert nach erfolgreicher Rückmeldung zurück zur Projektübersicht
+- Projekte unterstützen eine optionale Notiz, die über `MasterDataService` validiert und gespeichert wird
 
 ## Flow 6a: Rechnungssteller pflegen
 1. In `Einstellungen` wird das installweite Rechnungssteller-Profil bearbeitet.

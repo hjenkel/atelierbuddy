@@ -51,7 +51,7 @@ def test_seed_defaults_adds_contact_categories() -> None:
 def test_name_validation_rejects_short_values() -> None:
     service, _ = _build_service()
     try:
-        service.create_or_update_project(name="x", active=True, price_cents=None, created_on=None)
+        service.create_or_update_project(name="x", active=True, price_cents=None, created_on=None, notes=None)
     except ValueError as exc:
         assert "zwischen" in str(exc)
     else:
@@ -464,17 +464,19 @@ def test_delete_contact_rejects_existing_orders() -> None:
         assert session.get(Contact, contact.id) is not None
 
 
-def test_project_create_and_update_persists_price() -> None:
+def test_project_create_and_update_persists_price_and_notes() -> None:
     service, engine = _build_service()
     project, created = service.create_or_update_project(
         name="Album Artwork",
         active=True,
         price_cents=125000,
         created_on=None,
+        notes="  Erste Konzeptphase\nmit Varianten  ",
     )
     assert created
     assert project.id is not None
     assert project.price_cents == 125000
+    assert project.notes == "Erste Konzeptphase\nmit Varianten"
 
     updated = service.update_project(
         project_id=project.id,
@@ -482,15 +484,18 @@ def test_project_create_and_update_persists_price() -> None:
         active=False,
         price_cents=149900,
         created_on=None,
+        notes="  Finales Motiv freigegeben  ",
     )
     assert updated.price_cents == 149900
     assert updated.active is False
+    assert updated.notes == "Finales Motiv freigegeben"
 
     with Session(engine) as session:
         persisted = session.get(Project, project.id)
         assert persisted is not None
         assert persisted.price_cents == 149900
         assert persisted.active is False
+        assert persisted.notes == "Finales Motiv freigegeben"
 
 
 def test_delete_project_rejects_existing_allocations() -> None:

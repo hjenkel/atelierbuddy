@@ -161,6 +161,7 @@ def test_init_db_migrates_legacy_schema_without_touching_archive(
     with Session(engine) as session:
         contact_columns = {str(row[1]) for row in session.exec(text("PRAGMA table_info(contact)")).all()}
         order_columns = {str(row[1]) for row in session.exec(text("PRAGMA table_info(sales_order)")).all()}
+        project_columns = {str(row[1]) for row in session.exec(text("PRAGMA table_info(project)")).all()}
         profile_columns = {str(row[1]) for row in session.exec(text("PRAGMA table_info(invoice_profile)")).all()}
         allocation_columns = {
             str(row[1]): row
@@ -171,6 +172,7 @@ def test_init_db_migrates_legacy_schema_without_touching_archive(
 
     assert {"street", "house_number", "address_extra", "postal_code", "country"}.issubset(contact_columns)
     assert {"invoice_document_updated_at", "invoice_document_source"}.issubset(order_columns)
+    assert {"color", "active", "price_cents", "cover_image_path", "created_on", "notes"}.issubset(project_columns)
     assert {"display_name", "tax_id_type", "payment_term_days", "logo_path"}.issubset(profile_columns)
     assert "status" in allocation_columns
     assert int(allocation_columns["cost_type_id"][3]) == 0
