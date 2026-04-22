@@ -4817,6 +4817,7 @@ def register_pages(services: ServiceContainer) -> None:
         )
 
         with _shell("/projekte", "Projektdetail", navigate_to=guarded_navigate, rerender_path=f"/projekte/{pid}"):
+            client = context.client
             if pid <= 0:
                 with ui.card().classes("bm-card p-4 w-full"):
                     ui.label("Ungültige Projekt-ID")
@@ -4832,12 +4833,55 @@ def register_pages(services: ServiceContainer) -> None:
 
             cover_url = to_files_url(project.cover_image_path)
 
-            with ui.card().classes("bm-card p-4 w-full"):
-                with ui.row().classes("w-full items-center justify-between"):
-                    ui.label(project.name).classes("text-3xl font-semibold")
-                    ui.button("Zurück zu Projekten", icon="arrow_back", on_click=lambda: guarded_navigate("/projekte")).props(
-                        "flat"
+            async def _save_project() -> None:
+                await _flush_active_input(client)
+                name = (name_input.value or "").strip()
+                if not name:
+                    _notify_client(client, "Projektname fehlt", type="negative")
+                    return
+                try:
+                    masterdata.update_project(
+                        project_id=pid,
+                        name=name,
+                        active=bool(active_input.value),
+                        price_cents=_parse_money_to_cents(price_input.value),
+                        created_on=_parse_iso_date(created_on_input.value),
                     )
+                    _notify_client(client, "Projekt gespeichert", type="positive")
+                    await clean_and_navigate("/projekte")
+                except Exception as exc:
+                    _notify_error_with_client(client, "Speichern fehlgeschlagen", exc)
+
+            async def _delete_and_back() -> None:
+                try:
+                    old_cover_path = masterdata.delete_project(project_id=pid)
+                    safe_delete_file(old_cover_path)
+                    _notify_client(client, "Projekt entfernt", type="positive")
+                    await clean_and_navigate("/projekte")
+                except Exception as exc:
+                    _notify_error_with_client(client, "Projekt konnte nicht gelöscht werden", exc)
+
+            with ui.card().classes("bm-card p-4 w-full"):
+                with ui.row().classes("bm-detail-toolbar w-full items-center justify-between"):
+                    with ui.row().classes("items-center gap-2"):
+                        back_btn = ui.button(
+                            icon="close",
+                            on_click=lambda: guarded_navigate("/projekte"),
+                        ).props("flat round dense").classes("bm-icon-action-btn")
+                        back_btn.tooltip("Zurück zu Projekten")
+                    with ui.row().classes("items-center gap-2"):
+                        delete_btn = ui.button(
+                            icon="delete_outline",
+                            on_click=_delete_and_back,
+                        ).props("flat round dense").classes("bm-icon-action-btn bm-icon-action-btn--danger")
+                        delete_btn.tooltip("Projekt löschen")
+                        save_btn = ui.button(
+                            icon="save",
+                            on_click=_save_project,
+                        ).props("flat round dense").classes("bm-icon-action-btn bm-icon-action-btn--primary")
+                        save_btn.tooltip("Speichern")
+
+                ui.label(project.name).classes("text-xl font-semibold mb-2")
 
                 with ui.element("div").classes("bm-detail-grid w-full"):
                     with ui.column().classes("bm-detail-preview gap-3"):
@@ -4894,42 +4938,6 @@ def register_pages(services: ServiceContainer) -> None:
                         created_on_input.on("update:model-value", lambda _: mark_dirty())
                         active_input.on("update:model-value", lambda _: mark_dirty())
                         mark_clean()
-
-                        with ui.row().classes("w-full justify-between gap-2"):
-                            ui.button(
-                                "Projekt löschen",
-                                icon="delete",
-                                on_click=lambda: asyncio.create_task(_delete_and_back()),
-                            ).props("flat color=negative")
-                            ui.button("Speichern", on_click=lambda: asyncio.create_task(_save_project())).props("color=primary")
-
-                        async def _save_project() -> None:
-                            await _flush_active_input(context.client)
-                            name = (name_input.value or "").strip()
-                            if not name:
-                                ui.notify("Projektname fehlt", type="negative")
-                                return
-                            try:
-                                masterdata.update_project(
-                                    project_id=pid,
-                                    name=name,
-                                    active=bool(active_input.value),
-                                    price_cents=_parse_money_to_cents(price_input.value),
-                                    created_on=_parse_iso_date(created_on_input.value),
-                                )
-                                ui.notify("Projekt gespeichert", type="positive")
-                                await clean_and_navigate(f"/projekte/{pid}")
-                            except Exception as exc:
-                                _notify_error("Speichern fehlgeschlagen", exc)
-
-                        async def _delete_and_back() -> None:
-                            try:
-                                old_cover_path = masterdata.delete_project(project_id=pid)
-                                safe_delete_file(old_cover_path)
-                                ui.notify("Projekt entfernt", type="positive")
-                                await clean_and_navigate("/projekte")
-                            except Exception as exc:
-                                _notify_error("Projekt konnte nicht gelöscht werden", exc)
 
     def _render_contact_detail(contact_id: int | None) -> None:
         page_key = "new" if contact_id is None else str(contact_id)
