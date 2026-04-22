@@ -10,6 +10,7 @@ from starlette.datastructures import MutableHeaders
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from .config import settings
+from .constants import APP_VIEWPORT
 from .services.auth_service import AuthService
 
 LOG = logging.getLogger(__name__)
@@ -393,7 +394,7 @@ def _base_html(title: str, body: str) -> str:
 <html lang="de">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="viewport" content="{html.escape(APP_VIEWPORT)}" />
   <title>{html.escape(title)}</title>
   <style>
     :root {{

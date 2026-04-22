@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from nicegui import ui
 
+from ..constants import APPLE_TOUCH_ICON_PATH, APP_TITLE
+
 
 def apply_theme() -> None:
     ui.add_head_html(
@@ -10,6 +12,13 @@ def apply_theme() -> None:
         <link rel=\"preconnect\" href=\"https://fonts.gstatic.com\" crossorigin>
         <link href=\"https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=Sora:wght@700;800&display=swap\" rel=\"stylesheet\">
         <script src=\"/assets/pdfjs/pdf.min.js\"></script>
+        """
+        + f"""
+        <link rel=\"apple-touch-icon\" sizes=\"180x180\" href=\"{APPLE_TOUCH_ICON_PATH}\">
+        <meta name=\"apple-mobile-web-app-capable\" content=\"yes\">
+        <meta name=\"apple-mobile-web-app-title\" content=\"{APP_TITLE}\">
+        """
+        + """
         <script>
           (function () {
             const palette = {
@@ -1112,6 +1121,7 @@ def apply_theme() -> None:
           padding: 12px;
           display: block;
           box-sizing: border-box;
+          overscroll-behavior: contain;
         }
 
         .bm-pdf-viewport canvas {
@@ -1230,6 +1240,8 @@ def apply_theme() -> None:
           padding: 12px;
           display: block;
           box-sizing: border-box;
+          overscroll-behavior: contain;
+          -webkit-overflow-scrolling: touch;
         }
 
         .bm-image-stage {
@@ -1420,7 +1432,13 @@ def apply_theme() -> None:
             height: auto;
           }
           .bm-detail-preview {
-            height: auto;
+            height: 33dvh;
+            max-height: 33dvh;
+          }
+          .bm-detail-preview-frame,
+          .bm-pdf-viewer,
+          .bm-image-viewer {
+            height: 100%;
           }
           .bm-detail-form {
             max-height: none;
@@ -1439,6 +1457,17 @@ def apply_theme() -> None:
 
           .bm-global-brand {
             font-size: 0.92rem;
+          }
+
+          .bm-pdf-toolbar button,
+          .bm-image-toolbar button {
+            min-width: 40px;
+            min-height: 40px;
+          }
+
+          .bm-pdf-label,
+          .bm-image-label {
+            min-width: 72px;
           }
 
           .bm-sidebar-backdrop {

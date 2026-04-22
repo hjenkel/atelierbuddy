@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+APP_TITLE: str = "Atelier Buddy"
+APP_VIEWPORT: str = "width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
+APPLE_TOUCH_ICON_PATH: str = "/assets/apple-touch-icon.png"
+
 # Curated Material Symbols for cost type selection in UI.
 COST_TYPE_ICON_OPTIONS: list[tuple[str, str]] = [
     ("Material", "inventory_2"),

@@ -8,6 +8,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from .app_state import get_services
 from .config import settings
+from .constants import APP_TITLE, APP_VIEWPORT
 from .db import init_db
 from .security import AuthRequiredMiddleware, OriginValidationMiddleware, SecurityHeadersMiddleware, register_auth_routes
 from .ui import apply_theme, register_pages
@@ -51,7 +52,8 @@ def run() -> None:
         )
 
     ui.run(
-        title="Atelier Buddy",
+        title=APP_TITLE,
+        viewport=APP_VIEWPORT,
         favicon=settings.assets_dir / "hamster-favicon.png",
         host=settings.app_host,
         port=settings.app_port,

@@ -2128,40 +2128,140 @@ def register_pages(services: ServiceContainer) -> None:
                                   let naturalWidth = 0;
                                   let naturalHeight = 0;
                                   let scale = 1;
+                                  let pinchState = null;
 
                                   const clamp = (value) => Math.max(0.2, Math.min(6, value));
 
-                                  const applyScale = () => {{
+                                  const buildAnchorFromClient = (clientX, clientY, baseScale = scale) => {{
+                                    const viewportRect = viewportEl.getBoundingClientRect();
+                                    const imageRect = imageEl.getBoundingClientRect();
+                                    return {{
+                                      naturalX: (clientX - imageRect.left) / Math.max(baseScale, 0.001),
+                                      naturalY: (clientY - imageRect.top) / Math.max(baseScale, 0.001),
+                                      localX: clientX - viewportRect.left,
+                                      localY: clientY - viewportRect.top,
+                                    }};
+                                  }};
+
+                                  const viewportCenterAnchor = () => {{
+                                    const viewportRect = viewportEl.getBoundingClientRect();
+                                    return buildAnchorFromClient(
+                                      viewportRect.left + viewportRect.width / 2,
+                                      viewportRect.top + viewportRect.height / 2,
+                                    );
+                                  }};
+
+                                  const applyScale = (nextScale = scale, anchor = null) => {{
                                     if (!naturalWidth || !naturalHeight) return;
+                                    scale = clamp(nextScale);
                                     const width = Math.max(1, Math.round(naturalWidth * scale));
                                     imageEl.style.width = `${{width}}px`;
                                     imageEl.style.height = 'auto';
                                     zoomLabel.textContent = `${{Math.round(scale * 100)}}%`;
+
+                                    if (!anchor) return;
+
+                                    const boundedAnchor = {{
+                                      naturalX: Math.max(0, Math.min(naturalWidth, anchor.naturalX)),
+                                      naturalY: Math.max(0, Math.min(naturalHeight, anchor.naturalY)),
+                                      localX: anchor.localX,
+                                      localY: anchor.localY,
+                                    }};
+
+                                    requestAnimationFrame(() => {{
+                                      const viewportRect = viewportEl.getBoundingClientRect();
+                                      const imageRect = imageEl.getBoundingClientRect();
+                                      const contentLeft = imageRect.left - viewportRect.left + viewportEl.scrollLeft;
+                                      const contentTop = imageRect.top - viewportRect.top + viewportEl.scrollTop;
+
+                                      viewportEl.scrollLeft = Math.max(
+                                        0,
+                                        contentLeft + boundedAnchor.naturalX * scale - boundedAnchor.localX,
+                                      );
+                                      viewportEl.scrollTop = Math.max(
+                                        0,
+                                        contentTop + boundedAnchor.naturalY * scale - boundedAnchor.localY,
+                                      );
+                                    }});
                                   }};
 
                                   const fitWidth = () => {{
                                     if (!naturalWidth) return;
                                     const available = Math.max(viewportEl.clientWidth - 24, 140);
-                                    scale = clamp(available / naturalWidth);
-                                    applyScale();
+                                    applyScale(available / naturalWidth);
+                                    requestAnimationFrame(() => {{
+                                      viewportEl.scrollLeft = 0;
+                                      viewportEl.scrollTop = 0;
+                                    }});
+                                  }};
+
+                                  const stepZoom = (delta) => {{
+                                    applyScale(scale + delta, viewportCenterAnchor());
+                                  }};
+
+                                  const touchMetrics = (touches) => {{
+                                    const first = touches[0];
+                                    const second = touches[1];
+                                    const dx = second.clientX - first.clientX;
+                                    const dy = second.clientY - first.clientY;
+                                    return {{
+                                      centerX: (first.clientX + second.clientX) / 2,
+                                      centerY: (first.clientY + second.clientY) / 2,
+                                      distance: Math.hypot(dx, dy),
+                                    }};
                                   }};
 
                                   zoomOutBtn?.addEventListener('click', () => {{
-                                    scale = clamp(scale - 0.1);
-                                    applyScale();
+                                    stepZoom(-0.1);
                                   }});
 
                                   zoomInBtn?.addEventListener('click', () => {{
-                                    scale = clamp(scale + 0.1);
-                                    applyScale();
+                                    stepZoom(0.1);
                                   }});
 
                                   actualBtn?.addEventListener('click', () => {{
-                                    scale = 1;
-                                    applyScale();
+                                    applyScale(1, viewportCenterAnchor());
                                   }});
 
                                   fitBtn?.addEventListener('click', () => fitWidth());
+
+                                  viewportEl.addEventListener('touchstart', (event) => {{
+                                    if (!naturalWidth || event.touches.length !== 2) {{
+                                      pinchState = null;
+                                      return;
+                                    }}
+                                    const metrics = touchMetrics(event.touches);
+                                    if (!metrics.distance) return;
+                                    pinchState = {{
+                                      startDistance: metrics.distance,
+                                      startScale: scale,
+                                      anchor: buildAnchorFromClient(metrics.centerX, metrics.centerY),
+                                    }};
+                                  }}, {{ passive: true }});
+
+                                  viewportEl.addEventListener('touchmove', (event) => {{
+                                    if (!pinchState || event.touches.length !== 2) return;
+                                    const metrics = touchMetrics(event.touches);
+                                    if (!metrics.distance) return;
+                                    event.preventDefault();
+                                    const viewportRect = viewportEl.getBoundingClientRect();
+                                    applyScale(
+                                      pinchState.startScale * (metrics.distance / pinchState.startDistance),
+                                      {{
+                                        naturalX: pinchState.anchor.naturalX,
+                                        naturalY: pinchState.anchor.naturalY,
+                                        localX: metrics.centerX - viewportRect.left,
+                                        localY: metrics.centerY - viewportRect.top,
+                                      }},
+                                    );
+                                  }}, {{ passive: false }});
+
+                                  const stopPinch = () => {{
+                                    pinchState = null;
+                                  }};
+
+                                  viewportEl.addEventListener('touchend', stopPinch, {{ passive: true }});
+                                  viewportEl.addEventListener('touchcancel', stopPinch, {{ passive: true }});
 
                                   const initialize = () => {{
                                     naturalWidth = imageEl.naturalWidth || 0;
@@ -5516,7 +5616,7 @@ def register_pages(services: ServiceContainer) -> None:
                                     type="positive",
                                 )
                                 dialog.close()
-                                set_category_view("active")
+                                set_category_view("active", force_refresh=True)
                             except Exception as exc:
                                 _notify_error("Kostenkategorie konnte nicht angelegt werden", exc)
 
@@ -5891,9 +5991,9 @@ def register_pages(services: ServiceContainer) -> None:
                         table.on("edit_action", lambda e: open_edit_category_dialog(_extract_row_id(e) or -1))
                         table.on("primary_action", lambda e: run_category_primary_action(_extract_row_id(e) or -1))
 
-                def set_category_view(next_mode: str) -> None:
+                def set_category_view(next_mode: str, *, force_refresh: bool = False) -> None:
                     nonlocal category_view_mode
-                    if next_mode == category_view_mode:
+                    if next_mode == category_view_mode and not force_refresh:
                         return
                     category_view_mode = next_mode
                     apply_category_view_styles()
