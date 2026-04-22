@@ -297,6 +297,31 @@ def _human_size(size_bytes: int) -> str:
     return f"{size_bytes / (1024 * 1024):.1f} MB"
 
 
+def _build_staged_upload_entries(files: list[Any]) -> tuple[list[dict[str, Any]], int]:
+    entries: list[dict[str, Any]] = []
+    skipped = 0
+    for file_upload in files:
+        file_name = str(getattr(file_upload, "name", "") or "")
+        if not is_supported_filename(file_name):
+            skipped += 1
+            continue
+
+        try:
+            size = int(file_upload.size())
+        except Exception:
+            size = 0
+
+        entries.append(
+            {
+                "id": uuid.uuid4().hex,
+                "file": file_upload,
+                "name": file_name,
+                "size": size,
+            }
+        )
+    return entries, skipped
+
+
 def _contact_display_name_from_values(given_name: str | None, family_name: str | None) -> str:
     parts = [part.strip() for part in (given_name, family_name) if (part or "").strip()]
     return " ".join(parts) if parts else "-"
@@ -1270,7 +1295,7 @@ def register_pages(services: ServiceContainer) -> None:
         return mark_dirty, mark_clean, is_dirty, guarded_navigate, clean_and_navigate
 
     def open_import_dialog(on_import_done: Callable[[], None] | None = None) -> None:
-        with ui.dialog() as dialog, ui.card().classes("bm-card p-5 w-[820px] max-w-full"):
+        with ui.dialog().props("persistent") as dialog, ui.card().classes("bm-card p-5 w-[820px] max-w-full"):
             ui.label("Belege importieren").classes("text-2xl font-semibold")
             ui.label("Dateien oder einen Ordner auswählen und danach Import starten.").classes("text-sm text-slate-600")
 
@@ -1302,27 +1327,9 @@ def register_pages(services: ServiceContainer) -> None:
                 render_staging()
 
             async def handle_upload(event: events.MultiUploadEventArguments) -> None:
-                added = 0
-                skipped = 0
-                for file_upload in event.files:
-                    if not is_supported_filename(file_upload.name):
-                        skipped += 1
-                        continue
-
-                    try:
-                        size = int(file_upload.size())
-                    except Exception:
-                        size = 0
-
-                    staged_uploads.append(
-                        {
-                            "id": uuid.uuid4().hex,
-                            "file": file_upload,
-                            "name": file_upload.name,
-                            "size": size,
-                        }
-                    )
-                    added += 1
+                new_entries, skipped = _build_staged_upload_entries(event.files)
+                staged_uploads.extend(new_entries)
+                added = len(new_entries)
 
                 if added:
                     ui.notify(f"{added} Datei(en) hinzugefügt", type="positive")
@@ -1336,9 +1343,21 @@ def register_pages(services: ServiceContainer) -> None:
                 multiple=True,
                 auto_upload=True,
                 on_multi_upload=handle_upload,
-                label="Dateien hierher ziehen oder auswählen",
-            ).classes("w-full bm-upload-zone")
+                label="",
+            ).classes("bm-hidden-upload")
             upload_widget.props("accept=.pdf,.jpg,.jpeg,.png,.heic,.heif")
+
+            with ui.card().classes("w-full bm-upload-zone p-4"):
+                with ui.column().classes("w-full gap-2"):
+                    ui.label("Dateien auswählen").classes("text-base font-medium")
+                    ui.label(
+                        "PDF, JPG, PNG, HEIC oder HEIF. Mehrfachauswahl wird unterstützt.",
+                    ).classes("text-sm text-slate-600")
+                    ui.button(
+                        "Dateien auswählen",
+                        icon="upload_file",
+                        on_click=lambda: upload_widget.run_method("pickFiles"),
+                    ).props("color=primary")
 
             async def start_import() -> None:
                 if not staged_uploads:
@@ -1470,7 +1489,6 @@ def register_pages(services: ServiceContainer) -> None:
                 render_taskboard(shown_receipts, remaining_count)
 
             refresh_dashboard()
-            ui.timer(5.0, refresh_dashboard)
 
     @ui.page("/import")
     def import_page() -> None:

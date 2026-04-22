@@ -3,6 +3,7 @@ from decimal import Decimal
 from belegmanager.models import Contact
 from belegmanager.services.order_service import order_item_total_cents
 from belegmanager.ui.pages import (
+    _build_staged_upload_entries,
     _common_project_id_from_rows,
     _contact_display_name_from_values,
     _contact_sort_key,
@@ -83,3 +84,40 @@ def test_project_mode_helpers_detect_common_and_mixed_projects() -> None:
     assert _uses_position_project_mode(same_project_rows) is False
     assert _common_project_id_from_rows(mixed_project_rows) is None
     assert _uses_position_project_mode(mixed_project_rows) is True
+
+
+def test_build_staged_upload_entries_keeps_supported_files() -> None:
+    class FakeUpload:
+        def __init__(self, name: str, size_value: int) -> None:
+            self.name = name
+            self._size_value = size_value
+
+        def size(self) -> int:
+            return self._size_value
+
+    entries, skipped = _build_staged_upload_entries(
+        [FakeUpload("beleg.pdf", 2048), FakeUpload("scan.jpg", 512)]
+    )
+
+    assert skipped == 0
+    assert [entry["name"] for entry in entries] == ["beleg.pdf", "scan.jpg"]
+    assert [entry["size"] for entry in entries] == [2048, 512]
+    assert all(entry["id"] for entry in entries)
+
+
+def test_build_staged_upload_entries_skips_unsupported_and_handles_size_errors() -> None:
+    class BrokenSizeUpload:
+        def __init__(self, name: str) -> None:
+            self.name = name
+
+        def size(self) -> int:
+            raise RuntimeError("broken")
+
+    entries, skipped = _build_staged_upload_entries(
+        [BrokenSizeUpload("scan.png"), BrokenSizeUpload("notiz.txt")]
+    )
+
+    assert skipped == 1
+    assert len(entries) == 1
+    assert entries[0]["name"] == "scan.png"
+    assert entries[0]["size"] == 0
