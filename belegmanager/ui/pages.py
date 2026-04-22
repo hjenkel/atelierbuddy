@@ -11,7 +11,7 @@ from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from pathlib import Path
 from typing import Any, Callable
 
-from nicegui import context, events, ui
+from nicegui import app, context, events, ui
 from sqlalchemy import func, or_
 from sqlalchemy.orm import selectinload
 from sqlmodel import Session, select
@@ -53,7 +53,8 @@ DOC_TYPE_CREDIT_NOTE = "credit_note"
 INVOICE_GENERATION_FEEDBACK_TIMEOUT_SECONDS = 8
 INVOICE_GENERATION_MAX_WAIT_SECONDS = 65
 LOG = logging.getLogger(__name__)
-_NAV_STATE = {
+_NAV_STATE_STORAGE_KEY = "atelier_buddy_nav_state"
+_DEFAULT_NAV_STATE = {
     "sidebar_expanded": True,
     "sidebar_mobile_open": False,
     "open_groups": {"finance": True, "management": True},
@@ -226,12 +227,14 @@ def _notify_error_with_client(client: Any, user_message: str, exc: Exception) ->
 
 
 def _queue_flash_notification(message: str, *, type: str = "info") -> None:
-    _NAV_STATE["flash_notification"] = {"message": str(message), "type": str(type)}
+    nav_state = _nav_state()
+    nav_state["flash_notification"] = {"message": str(message), "type": str(type)}
 
 
 def _consume_flash_notification() -> dict[str, str] | None:
-    payload = _NAV_STATE.get("flash_notification")
-    _NAV_STATE["flash_notification"] = None
+    nav_state = _nav_state()
+    payload = nav_state.get("flash_notification")
+    nav_state["flash_notification"] = None
     if not isinstance(payload, dict):
         return None
     message = str(payload.get("message") or "").strip()
@@ -241,6 +244,28 @@ def _consume_flash_notification() -> dict[str, str] | None:
         "message": message,
         "type": str(payload.get("type") or "info"),
     }
+
+
+def _nav_state() -> dict[str, Any]:
+    stored_state = app.storage.user.get(_NAV_STATE_STORAGE_KEY)
+    if not isinstance(stored_state, dict):
+        stored_state = {}
+        app.storage.user[_NAV_STATE_STORAGE_KEY] = stored_state
+
+    open_groups = stored_state.get("open_groups")
+    if not isinstance(open_groups, dict):
+        open_groups = {}
+    stored_state["open_groups"] = {
+        **dict(_DEFAULT_NAV_STATE["open_groups"]),
+        **{str(key): bool(value) for key, value in open_groups.items()},
+    }
+
+    for key, default_value in _DEFAULT_NAV_STATE.items():
+        if key == "open_groups":
+            continue
+        stored_state.setdefault(key, default_value)
+
+    return stored_state
 
 
 def _parse_iso_date(value: str | None) -> date | None:
@@ -711,15 +736,14 @@ def _shell(
     navigate_to: Callable[[str], Any] | None = None,
     rerender_path: str | None = None,
 ):
+    nav_state = _nav_state()
+
     def navigate(path: str, *, close_mobile: bool = True) -> Any:
         if close_mobile:
-            _NAV_STATE["sidebar_mobile_open"] = False
+            nav_state["sidebar_mobile_open"] = False
         if navigate_to is not None:
             return navigate_to(path)
         return ui.navigate.to(path)
-
-    def rerender_current_shell() -> None:
-        ui.navigate.to(rerender_path or active_path)
 
     def context_class(path: str) -> str:
         if path.startswith("/belege") or path.startswith("/lieferanten") or path.startswith("/kategorien") or path.startswith(
@@ -736,15 +760,20 @@ def _shell(
             return "bm-context-settings"
         return "bm-context-dashboard"
 
-    is_expanded = bool(_NAV_STATE["sidebar_expanded"])
-    is_mobile_sidebar_open = bool(_NAV_STATE["sidebar_mobile_open"])
-    is_effectively_expanded = is_expanded or is_mobile_sidebar_open
+    def is_expanded() -> bool:
+        return bool(nav_state.get("sidebar_expanded"))
+
+    def is_mobile_sidebar_open() -> bool:
+        return bool(nav_state.get("sidebar_mobile_open"))
+
+    def is_effectively_expanded() -> bool:
+        return is_expanded() or is_mobile_sidebar_open()
 
     def group_active(group: dict[str, Any]) -> bool:
         return any(active_path == item.get("path") for item in group.get("items", []))
 
-    open_groups = dict(_NAV_STATE.get("open_groups") or {})
-    previous_path = _NAV_STATE.get("last_path")
+    open_groups = dict(nav_state.get("open_groups") or {})
+    previous_path = nav_state.get("last_path")
     if previous_path != active_path:
         for entry in _NAV_CONFIG:
             if entry.get("type") != "group":
@@ -753,26 +782,31 @@ def _shell(
             if not key:
                 continue
             open_groups[key] = group_active(entry)
-    _NAV_STATE["open_groups"] = open_groups
-    _NAV_STATE["last_path"] = active_path
+    nav_state["open_groups"] = open_groups
+    nav_state["last_path"] = active_path
     flash_notification = _consume_flash_notification()
 
+    def refresh_shell_chrome() -> None:
+        render_mobile_nav_button.refresh()
+        render_sidebar_backdrop.refresh()
+        render_sidebar.refresh()
+
     def toggle_sidebar() -> None:
-        _NAV_STATE["sidebar_expanded"] = not bool(_NAV_STATE["sidebar_expanded"])
-        rerender_current_shell()
+        nav_state["sidebar_expanded"] = not is_expanded()
+        refresh_shell_chrome()
 
     def close_mobile_sidebar() -> None:
-        if not bool(_NAV_STATE["sidebar_mobile_open"]):
+        if not is_mobile_sidebar_open():
             return
-        _NAV_STATE["sidebar_mobile_open"] = False
-        rerender_current_shell()
+        nav_state["sidebar_mobile_open"] = False
+        refresh_shell_chrome()
 
     def toggle_mobile_sidebar() -> None:
-        _NAV_STATE["sidebar_mobile_open"] = not bool(_NAV_STATE["sidebar_mobile_open"])
-        rerender_current_shell()
+        nav_state["sidebar_mobile_open"] = not is_mobile_sidebar_open()
+        refresh_shell_chrome()
 
     def toggle_group(group_key: str) -> None:
-        next_open_groups = dict(_NAV_STATE.get("open_groups") or {})
+        next_open_groups = dict(nav_state.get("open_groups") or {})
         group_entry = next(
             (
                 entry
@@ -784,29 +818,25 @@ def _shell(
         if not group_entry:
             return
         is_open = bool(next_open_groups.get(group_key))
-        if not is_open:
-            next_open_groups[group_key] = True
-            _NAV_STATE["open_groups"] = next_open_groups
-            rerender_current_shell()
-            return
-        next_open_groups[group_key] = False
-        _NAV_STATE["open_groups"] = next_open_groups
-        rerender_current_shell()
+        next_open_groups[group_key] = not is_open
+        nav_state["open_groups"] = next_open_groups
+        render_sidebar.refresh()
 
     def nav_item(path: str, label: str, icon: str, *, nested: bool = False) -> None:
         active = active_path == path
-        button_label = label if is_effectively_expanded else ""
+        sidebar_expanded = is_effectively_expanded()
+        button_label = label if sidebar_expanded else ""
         classes = "bm-nav-item w-full"
         if active:
             classes += " bm-nav-item--active"
-        if nested and is_effectively_expanded:
+        if nested and sidebar_expanded:
             classes += " bm-nav-item--nested"
-        if nested and not is_effectively_expanded:
+        if nested and not sidebar_expanded:
             classes += " bm-nav-item--nested-mini"
-        if not is_effectively_expanded:
+        if not sidebar_expanded:
             classes += " bm-nav-item--mini"
         button_props = "flat no-caps align=left"
-        if not is_effectively_expanded:
+        if not sidebar_expanded:
             button_props = "flat no-caps"
         ui.button(
             button_label,
@@ -836,10 +866,14 @@ def _shell(
         with ui.row().classes("bm-global-header w-full items-center"):
             with ui.row().classes("bm-global-header-inner w-full items-center justify-between"):
                 with ui.row().classes("items-center gap-2"):
-                    ui.button(
-                        icon="menu" if not is_mobile_sidebar_open else "close",
-                        on_click=toggle_mobile_sidebar,
-                    ).props("flat round dense").classes("bm-global-icon-btn bm-mobile-nav-btn")
+                    @ui.refreshable
+                    def render_mobile_nav_button() -> None:
+                        ui.button(
+                            icon="menu" if not is_mobile_sidebar_open() else "close",
+                            on_click=toggle_mobile_sidebar,
+                        ).props("flat round dense").classes("bm-global-icon-btn bm-mobile-nav-btn")
+
+                    render_mobile_nav_button()
                     with ui.element("div").classes("bm-global-brand-badge"):
                         ui.image("/assets/hamster-logo.png").classes("bm-global-brand-logo")
                     ui.label("Atelier Buddy").classes("bm-global-brand")
@@ -865,64 +899,72 @@ def _shell(
                         on_click=lambda: navigate("/logout"),
                     ).props("flat round dense").classes("bm-global-icon-btn")
 
-        backdrop_classes = "bm-sidebar-backdrop"
-        if is_mobile_sidebar_open:
-            backdrop_classes += " bm-sidebar-backdrop--open"
-        ui.element("div").classes(backdrop_classes).on("click", lambda _: close_mobile_sidebar())
+        @ui.refreshable
+        def render_sidebar_backdrop() -> None:
+            backdrop_classes = "bm-sidebar-backdrop"
+            if is_mobile_sidebar_open():
+                backdrop_classes += " bm-sidebar-backdrop--open"
+            ui.element("div").classes(backdrop_classes).on("click", lambda _: close_mobile_sidebar())
+
+        render_sidebar_backdrop()
 
         with ui.row().classes("bm-app-shell w-full"):
-            sidebar_classes = "bm-sidebar"
-            if not is_effectively_expanded:
-                sidebar_classes += " bm-sidebar--mini"
-            if is_mobile_sidebar_open:
-                sidebar_classes += " bm-sidebar--mobile-open"
+            @ui.refreshable
+            def render_sidebar() -> None:
+                sidebar_classes = "bm-sidebar"
+                if not is_effectively_expanded():
+                    sidebar_classes += " bm-sidebar--mini"
+                if is_mobile_sidebar_open():
+                    sidebar_classes += " bm-sidebar--mobile-open"
 
-            with ui.column().classes(sidebar_classes):
-                with ui.row().classes("bm-sidebar-header w-full items-center justify-center"):
-                    ui.button(
-                        "",
-                        icon="keyboard_double_arrow_left" if is_expanded else "keyboard_double_arrow_right",
-                        on_click=toggle_sidebar,
-                    ).props("flat no-caps").classes("bm-nav-item bm-nav-item--mini bm-sidebar-toggle-btn w-full")
-
-                for entry in _NAV_CONFIG:
-                    entry_type = entry.get("type")
-                    if entry_type == "item":
-                        nav_item(str(entry["path"]), str(entry["label"]), str(entry["icon"]))
-                        continue
-                    if entry_type != "group":
-                        continue
-
-                    group_key = str(entry.get("key") or "")
-                    if not group_key:
-                        continue
-                    is_group_open = bool((_NAV_STATE.get("open_groups") or {}).get(group_key))
-                    is_group_active = group_active(entry)
-                    if is_effectively_expanded:
-                        group_classes = "bm-nav-item bm-nav-group-trigger w-full"
-                        if is_group_active:
-                            group_classes += " bm-nav-item--active"
-                        if is_group_open:
-                            group_classes += " bm-nav-group-trigger--open"
-                        ui.button(
-                            str(entry.get("label") or ""),
-                            icon=str(entry.get("icon") or "folder"),
-                            on_click=lambda k=group_key: toggle_group(k),
-                        ).props("flat no-caps align=left").classes(group_classes)
-                    else:
-                        group_classes = "bm-nav-item bm-nav-item--mini bm-nav-group-trigger w-full"
-                        if is_group_active:
-                            group_classes += " bm-nav-item--active"
-                        if is_group_open:
-                            group_classes += " bm-nav-group-trigger--open"
+                with ui.column().classes(sidebar_classes):
+                    with ui.row().classes("bm-sidebar-header w-full items-center justify-center"):
                         ui.button(
                             "",
-                            icon=str(entry.get("icon") or "folder"),
-                            on_click=lambda k=group_key: toggle_group(k),
-                        ).props("flat no-caps").classes(group_classes)
-                    if is_group_open:
-                        for item in entry.get("items", []):
-                            nav_item(str(item.get("path")), str(item.get("label")), str(item.get("icon")), nested=True)
+                            icon="keyboard_double_arrow_left" if is_expanded() else "keyboard_double_arrow_right",
+                            on_click=toggle_sidebar,
+                        ).props("flat no-caps").classes("bm-nav-item bm-nav-item--mini bm-sidebar-toggle-btn w-full")
+
+                    for entry in _NAV_CONFIG:
+                        entry_type = entry.get("type")
+                        if entry_type == "item":
+                            nav_item(str(entry["path"]), str(entry["label"]), str(entry["icon"]))
+                            continue
+                        if entry_type != "group":
+                            continue
+
+                        group_key = str(entry.get("key") or "")
+                        if not group_key:
+                            continue
+                        is_group_open = bool((nav_state.get("open_groups") or {}).get(group_key))
+                        is_group_active = group_active(entry)
+                        if is_effectively_expanded():
+                            group_classes = "bm-nav-item bm-nav-group-trigger w-full"
+                            if is_group_active:
+                                group_classes += " bm-nav-item--active"
+                            if is_group_open:
+                                group_classes += " bm-nav-group-trigger--open"
+                            ui.button(
+                                str(entry.get("label") or ""),
+                                icon=str(entry.get("icon") or "folder"),
+                                on_click=lambda k=group_key: toggle_group(k),
+                            ).props("flat no-caps align=left").classes(group_classes)
+                        else:
+                            group_classes = "bm-nav-item bm-nav-item--mini bm-nav-group-trigger w-full"
+                            if is_group_active:
+                                group_classes += " bm-nav-item--active"
+                            if is_group_open:
+                                group_classes += " bm-nav-group-trigger--open"
+                            ui.button(
+                                "",
+                                icon=str(entry.get("icon") or "folder"),
+                                on_click=lambda k=group_key: toggle_group(k),
+                            ).props("flat no-caps").classes(group_classes)
+                        if is_group_open:
+                            for item in entry.get("items", []):
+                                nav_item(str(item.get("path")), str(item.get("label")), str(item.get("icon")), nested=True)
+
+            render_sidebar()
 
             with ui.column().classes("bm-content"):
                 if show_page_head:
@@ -1793,10 +1835,11 @@ def register_pages(services: ServiceContainer) -> None:
         mark_dirty, mark_clean, is_dirty, guarded_navigate, clean_and_navigate = create_dirty_guard(
             f"atelierBuddyReceiptDirty_{rid}_{uuid.uuid4().hex}"
         )
-        previous_area_path = _NAV_STATE.get("last_path")
+        nav_state = _nav_state()
+        previous_area_path = nav_state.get("last_path")
         if isinstance(previous_area_path, str) and previous_area_path and previous_area_path != f"/belege/{rid}":
-            _NAV_STATE["receipt_return_path"] = previous_area_path
-        receipt_return_path = str(_NAV_STATE.get("receipt_return_path") or "/belege")
+            nav_state["receipt_return_path"] = previous_area_path
+        receipt_return_path = str(nav_state.get("receipt_return_path") or "/belege")
         if receipt_return_path == f"/belege/{rid}":
             receipt_return_path = "/belege"
 
