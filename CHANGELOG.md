@@ -4,6 +4,16 @@ Alle wichtigen Änderungen an diesem Projekt werden in dieser Datei dokumentiert
 
 Das Format orientiert sich an Keep a Changelog, und dieses Projekt folgt Semantic Versioning (`0.y.z` vor `1.0`).
 
+## [0.3.4] - 2026-04-22
+### Hinzugefügt
+- iOS-Homescreen-Icon auf Basis des Hamster-Brandings ergänzt.
+- Pinch-to-Zoom für Bildvorschauen in der mobilen Belegdetailansicht ergänzt.
+
+### Geändert
+- Kostenkategorien aktualisieren nach dem Anlegen jetzt sofort ohne Seiten-Reload.
+- Globalen Viewport und Auth-Seiten auf app-artiges Mobilverhalten mit deaktiviertem Browser-Zoom vereinheitlicht.
+- Belegvorschau in einspaltigen Layouts kompakter gestaltet und Touch-Ziele der Viewer-Toolbar auf Mobilgeräten vergrößert.
+
 ## [0.3.3] - 2026-04-19
 ### Geändert
 - Beleg-Speicherflow vereinheitlicht: Belege lassen sich nun auch bei noch unvollständigen Pflichtangaben speichern, ohne dass Zuordnungsentwürfe verloren gehen.

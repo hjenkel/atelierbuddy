@@ -1,6 +1,6 @@
 [project]
 name = "belegmanager"
-version = "0.3.3"
+version = "0.3.4"
 description = "Lokale Belegverwaltung fuer selbststaendige Kuenstler:innen"
 readme = "README.md"
 license = {text = "AGPL-3.0-or-later"}

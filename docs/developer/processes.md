@@ -1,7 +1,7 @@
 # Prozesse und Flows
 
 Quelle: `belegmanager/services/*`, `belegmanager/ui/pages.py`, `belegmanager/app_state.py`, `belegmanager/receipt_completion.py`  
-Version-Single-Source: `pyproject.toml` (`0.3.3`)
+Version-Single-Source: `pyproject.toml` (`0.3.4`)
 
 ## Service-Architektur
 `app_state.get_services()` baut einen gemeinsamen Service-Container mit:
@@ -26,6 +26,12 @@ Beim App-Start:
 2. Der OCR-Worker wird gestartet.
 3. Datenbank und Default-Daten werden initialisiert.
 4. Seiten und Sicherheitsmiddleware werden registriert.
+
+Zusätzliche UI-/Mobil-Konventionen:
+- die globale Viewport-Konfiguration sperrt Browser-Seitenzoom bewusst app-artig
+- Login-/Setup-Seiten übernehmen dieselbe Viewport-Regel wie die Haupt-App
+- die Bildvorschau in der Belegdetailseite bietet stattdessen gezieltes Zwei-Finger-Pinch-to-Zoom innerhalb des Viewer-Bereichs
+- PDF-Vorschauen bleiben bei expliziten Zoom-Buttons; in einspaltigen Layouts ist die Vorschauhöhe auf ungefähr ein Drittel der Bildschirmhöhe begrenzt
 
 ## Flow 1: Import bis OCR
 1. Nutzer startet einen Datei- oder Ordnerimport.

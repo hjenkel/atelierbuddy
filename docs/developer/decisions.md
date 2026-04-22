@@ -1,6 +1,6 @@
 # Architekturentscheidungen
 
-Version-Single-Source: `pyproject.toml` (`0.3.3`)
+Version-Single-Source: `pyproject.toml` (`0.3.4`)
 
 ## 1. Lokal-first und self-hosted
 Entscheidung:
@@ -146,3 +146,14 @@ Entscheidung:
 Warum:
 - deckt die wichtigsten Risiken einer self-hosted Web-App ab
 - bleibt überschaubar und wartbar
+
+## 14. App-artiges Mobilverhalten statt freiem Browser-Zoom
+Entscheidung:
+- die Web-App nutzt global einen app-artigen Viewport mit deaktiviertem Browser-Seitenzoom
+- mobile Bildvorschauen in der Belegdetailseite bekommen stattdessen gezieltes Pinch-to-Zoom im Viewer
+- iOS-Homescreen-Integration nutzt ein eigenes `apple-touch-icon`
+
+Warum:
+- versehentliches Zoomen stört auf iPhone/iPad im Alltagsfluss stärker als es hilft
+- die Belegvorschau braucht trotzdem eine direkte Zoom-Geste für Bilder
+- Homescreen-Installation soll auf iOS konsistent als App wirken
