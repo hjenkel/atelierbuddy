@@ -7,6 +7,7 @@ from belegmanager.ui.pages import (
     _common_project_id_from_rows,
     _contact_display_name_from_values,
     _contact_sort_key,
+    _extract_model_value,
     _extract_row_id,
     _normalize_money_input,
     _normalize_quantity_input,
@@ -47,6 +48,12 @@ def test_extract_row_id_returns_none_for_invalid_payload() -> None:
     assert _extract_row_id({"row": {"id": "abc"}}) is None
     assert _extract_row_id({"row": {}}) is None
     assert _extract_row_id([{"detail": 1, "button": 0}, {"supplier": "X"}, 0]) is None
+
+
+def test_extract_model_value_accepts_quasar_model_value_keys() -> None:
+    assert _extract_model_value({"value": "2026-04-22"}) == "2026-04-22"
+    assert _extract_model_value({"modelValue": "2026-04-23"}) == "2026-04-23"
+    assert _extract_model_value({"model-value": "2026-04-24"}) == "2026-04-24"
 
 
 def test_contact_display_name_from_values_joins_present_parts() -> None:

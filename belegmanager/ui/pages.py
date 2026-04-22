@@ -2790,13 +2790,18 @@ def register_pages(services: ServiceContainer) -> None:
                             refresh_allocation_summary()
                             refresh_completion_state()
 
+                        def sync_receipt_date_input(event: Any) -> None:
+                            date_input.value = str(_extract_model_value(event, date_input.value) or "")
+                            mark_dirty()
+                            refresh_completion_state()
+
                         gross_input.on_value_change(
                             lambda _: (schedule_net_preview(), mark_dirty(), refresh_allocation_summary(), refresh_completion_state())
                         )
                         vat_input.on_value_change(
                             lambda _: (schedule_net_preview(), mark_dirty(), refresh_completion_state())
                         )
-                        date_input.on_value_change(lambda _: (mark_dirty(), refresh_completion_state()))
+                        date_input.on("update:model-value", sync_receipt_date_input)
                         supplier_input.on_value_change(lambda _: (mark_dirty(), refresh_completion_state()))
                         notes_input.on_value_change(lambda _: mark_dirty())
                         gross_input.on("keydown.enter", lambda _: refresh_net_preview())
