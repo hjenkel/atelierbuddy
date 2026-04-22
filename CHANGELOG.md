@@ -4,6 +4,11 @@ Alle wichtigen Änderungen an diesem Projekt werden in dieser Datei dokumentiert
 
 Das Format orientiert sich an Keep a Changelog, und dieses Projekt folgt Semantic Versioning (`0.y.z` vor `1.0`).
 
+## [0.3.5] - 2026-04-22
+### Geändert
+- Dashboard-Importdialog bereinigt: Der Datei-Upload lässt sich wieder zuverlässig direkt aus dem Dashboard öffnen und verwenden.
+- Belegdetailansicht korrigiert: Manuell eingegebene Werte im Feld `Belegdatum` werden nun auch ohne Kalenderauswahl beim Speichern übernommen.
+
 ## [0.3.4] - 2026-04-22
 ### Hinzugefügt
 - iOS-Homescreen-Icon auf Basis des Hamster-Brandings ergänzt.
