@@ -81,7 +81,7 @@ Rechnungsdokument:
 - vor dem Generieren werden aktive Formularänderungen in der UI zunächst gespeichert
 - fehlendes Rechnungsdatum wird beim Generieren automatisch auf `heute` gesetzt
 - fehlende Rechnungsnummer wird beim Generieren automatisch im Format `RE-YYYY-0001` vergeben
-- PDF-Erzeugung rendert das feste HTML/CSS-Standardtemplate über `WeasyPrint`
+- PDF-Erzeugung rendert die installweit gewählte Standard- oder eigene HTML/CSS-Vorlage über `WeasyPrint`
 - die erzeugte PDF wird als Snapshot gespeichert und später nicht still neu generiert
 - sobald ein Rechnungsdokument vorhanden ist, sind Kontakt, Positionen, Verkaufsdatum, Rechnungsdatum und Rechnungsnummer gesperrt
 - `Abgerechnet` ist erst erreicht, wenn Rechnungsdatum, Rechnungsnummer und Datei vorhanden sind

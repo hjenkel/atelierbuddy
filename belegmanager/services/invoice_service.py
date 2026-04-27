@@ -21,6 +21,9 @@ from .order_service import order_item_total_cents, order_total_cents
 
 INVOICE_PROFILE_SINGLETON_ID = 1
 VALID_TAX_ID_TYPES = {"tax_number", "vat_id"}
+INVOICE_TEMPLATE_MODE_STANDARD = "standard"
+INVOICE_TEMPLATE_MODE_CUSTOM = "custom"
+VALID_INVOICE_TEMPLATE_MODES = {INVOICE_TEMPLATE_MODE_STANDARD, INVOICE_TEMPLATE_MODE_CUSTOM}
 MAX_PROFILE_FIELD_LENGTH = 255
 MAX_PAYMENT_TERM_DAYS = 365
 PDF_RENDER_TIMEOUT_SECONDS = 45
@@ -125,7 +128,7 @@ class InvoiceService:
     ) -> None:
         self._engine = db_engine or engine
         self._renderer = renderer or WeasyPrintInvoiceRenderer()
-        self._template_dir = template_dir or (settings.assets_dir / "invoice_templates" / "standard")
+        self._standard_template_dir = template_dir or (settings.assets_dir / "invoice_templates" / "standard")
         self._today_provider = today_provider or date.today
 
     def get_profile(self) -> InvoiceProfile:
@@ -176,6 +179,34 @@ class InvoiceService:
             session.refresh(profile)
             return profile
 
+    def set_invoice_template_mode(self, mode: str | None) -> InvoiceProfile:
+        normalized_mode = self._normalize_invoice_template_mode(mode)
+        with Session(self._engine) as session:
+            profile = self._get_or_create_profile(session)
+            profile.invoice_template_mode = normalized_mode
+            profile.updated_at = datetime.now(timezone.utc)
+            session.add(profile)
+            session.commit()
+            session.refresh(profile)
+            return profile
+
+    def custom_template_status(self) -> dict[str, Any]:
+        template_dir = settings.custom_invoice_template_dir
+        html_path = template_dir / "invoice.html"
+        css_path = template_dir / "invoice.css"
+        fonts_dir = settings.custom_invoice_fonts_dir
+        font_count = 0
+        if fonts_dir.exists():
+            font_count = len([path for path in fonts_dir.iterdir() if path.is_file()])
+        return {
+            "html_path": html_path,
+            "css_path": css_path,
+            "html_exists": html_path.exists() and html_path.is_file(),
+            "css_exists": css_path.exists() and css_path.is_file(),
+            "font_count": font_count,
+            "complete": html_path.exists() and html_path.is_file() and css_path.exists() and css_path.is_file(),
+        }
+
     def set_logo_path(self, logo_path: str | None) -> InvoiceProfile:
         normalized_logo_path = self._normalize_text(logo_path, label="Logo-Pfad")
         with Session(self._engine) as session:
@@ -212,6 +243,7 @@ class InvoiceService:
             issues = self._collect_generation_issues(order=order, profile=profile)
             if issues:
                 raise ValueError("Rechnung kann nicht erzeugt werden: " + "; ".join(issues))
+            template_dir = self._template_dir_for_profile(profile)
 
             effective_invoice_date = order.invoice_date or self._today_provider()
             effective_invoice_number = (order.invoice_number or "").strip() or self._next_invoice_number(
@@ -226,12 +258,13 @@ class InvoiceService:
                 profile=profile,
                 invoice_date=effective_invoice_date,
                 invoice_number=effective_invoice_number,
+                template_dir=template_dir,
             )
-            stylesheet_path = self._template_dir / "invoice.css"
+            stylesheet_path = template_dir / "invoice.css"
             self._renderer.render(
                 html,
                 stylesheet_path=stylesheet_path,
-                base_url=str(self._template_dir),
+                base_url=str(template_dir),
                 destination=destination,
             )
 
@@ -282,6 +315,7 @@ class InvoiceService:
         issues: list[str] = []
         issues.extend(self._profile_issues(profile))
         issues.extend(self._recipient_issues(order.contact))
+        issues.extend(self._template_issues(profile))
         if not order.items:
             issues.append("Mindestens eine Position fehlt")
         return issues
@@ -308,6 +342,24 @@ class InvoiceService:
         if profile.payment_term_days is None:
             issues.append("Zahlungsziel im Rechnungssteller fehlt")
         return issues
+
+    def _template_issues(self, profile: InvoiceProfile) -> list[str]:
+        mode = self._normalize_invoice_template_mode(profile.invoice_template_mode)
+        if mode == INVOICE_TEMPLATE_MODE_STANDARD:
+            return []
+        status = self.custom_template_status()
+        issues: list[str] = []
+        if not status["html_exists"]:
+            issues.append("Eigene Rechnungsvorlage: invoice.html fehlt")
+        if not status["css_exists"]:
+            issues.append("Eigene Rechnungsvorlage: invoice.css fehlt")
+        return issues
+
+    def _template_dir_for_profile(self, profile: InvoiceProfile) -> Path:
+        mode = self._normalize_invoice_template_mode(profile.invoice_template_mode)
+        if mode == INVOICE_TEMPLATE_MODE_CUSTOM:
+            return settings.custom_invoice_template_dir
+        return self._standard_template_dir
 
     def _recipient_issues(self, contact: Contact | None) -> list[str]:
         if contact is None:
@@ -357,18 +409,23 @@ class InvoiceService:
         profile: InvoiceProfile,
         invoice_date: date,
         invoice_number: str,
+        template_dir: Path | None = None,
     ) -> str:
-        template = Template((self._template_dir / "invoice.html").read_text(encoding="utf-8"))
+        active_template_dir = template_dir or self._standard_template_dir
+        template = Template((active_template_dir / "invoice.html").read_text(encoding="utf-8"))
+        custom_font_face_css = self._render_custom_font_face_css()
         logo_uri = ""
         if profile.logo_path:
             logo_path = Path(profile.logo_path)
             if logo_path.exists():
                 logo_uri = logo_path.resolve().as_uri()
 
-        profile_address_lines = self._profile_address_lines(profile)
+        sender_address_lines = self._sender_address_lines(profile)
         recipient_lines = self._recipient_address_lines(order.contact)
         payment_due_date = invoice_date + timedelta(days=int(profile.payment_term_days or 0))
         total_cents = order_total_cents(order.items)
+        street_line = " ".join(part for part in (profile.street or "", profile.house_number or "") if part.strip())
+        city_line = " ".join(part for part in (profile.postal_code or "", profile.city or "") if part.strip())
 
         items_html = "".join(
             self._render_item_row(
@@ -379,16 +436,20 @@ class InvoiceService:
             for index, item in enumerate(sorted(order.items, key=lambda current: current.position), start=1)
         )
         tax_label = "USt-IdNr." if profile.tax_id_type == "vat_id" else "Steuernummer"
+        tax_label_footer = "USt-Id" if profile.tax_id_type == "vat_id" else "Steuer-ID"
 
         return template.safe_substitute(
             {
+                "custom_font_face_css": custom_font_face_css,
                 "logo_html": (
                     f'<img class="invoice-logo" src="{escape(logo_uri)}" alt="Logo" />'
                     if logo_uri
                     else '<div class="invoice-logo invoice-logo--placeholder"></div>'
                 ),
                 "sender_name": escape(profile.display_name or ""),
-                "sender_address_html": "".join(f"<div>{escape(line)}</div>" for line in profile_address_lines),
+                "sender_address_html": "".join(f"<div>{escape(line)}</div>" for line in sender_address_lines),
+                "sender_street_line": escape(street_line),
+                "sender_city_line": escape(city_line),
                 "sender_contact_html": self._render_sender_contact(profile),
                 "recipient_html": "".join(f"<div>{escape(line)}</div>" for line in recipient_lines),
                 "invoice_number": escape(invoice_number),
@@ -396,6 +457,7 @@ class InvoiceService:
                 "sale_date": escape(self._format_date(order.sale_date)),
                 "payment_due_date": escape(self._format_date(payment_due_date)),
                 "tax_label": escape(tax_label),
+                "tax_label_footer": escape(tax_label_footer),
                 "tax_value": escape(profile.tax_id_value or ""),
                 "items_html": items_html,
                 "total_net": escape(self._format_currency(total_cents, settings.default_currency)),
@@ -420,6 +482,25 @@ class InvoiceService:
             "</tr>"
         )
 
+    def _render_custom_font_face_css(self) -> str:
+        custom_fonts_dir = settings.data_dir / "customfonts"
+        candidate_paths = [
+            custom_fonts_dir / "invoice-display.ttf",
+            custom_fonts_dir / "FascinateInline-Regular.ttf",
+        ]
+        font_path = next((path for path in candidate_paths if path.exists()), None)
+        if font_path is None:
+            return ""
+        font_uri = escape(font_path.resolve().as_uri())
+        return (
+            "@font-face {\n"
+            '  font-family: "Invoice Display";\n'
+            f'  src: url("{font_uri}") format("truetype");\n'
+            "  font-style: normal;\n"
+            "  font-weight: 400;\n"
+            "}\n"
+        )
+
     def _render_sender_contact(self, profile: InvoiceProfile) -> str:
         lines: list[str] = []
         if (profile.email or "").strip():
@@ -434,6 +515,12 @@ class InvoiceService:
         street_line = " ".join(part for part in (profile.street or "", profile.house_number or "") if part.strip())
         city_line = " ".join(part for part in (profile.postal_code or "", profile.city or "") if part.strip())
         lines = [profile.display_name or "", street_line, profile.address_extra or "", city_line, self._country_label(profile.country)]
+        return [line.strip() for line in lines if line and line.strip()]
+
+    def _sender_address_lines(self, profile: InvoiceProfile) -> list[str]:
+        street_line = " ".join(part for part in (profile.street or "", profile.house_number or "") if part.strip())
+        city_line = " ".join(part for part in (profile.postal_code or "", profile.city or "") if part.strip())
+        lines = [street_line, profile.address_extra or "", city_line, self._country_label(profile.country)]
         return [line.strip() for line in lines if line and line.strip()]
 
     def _recipient_address_lines(self, contact: Contact | None) -> list[str]:
@@ -480,6 +567,12 @@ class InvoiceService:
         normalized = (value or "tax_number").strip().lower()
         if normalized not in VALID_TAX_ID_TYPES:
             raise ValueError("Steuerkennzeichen-Typ ist ungültig")
+        return normalized
+
+    def _normalize_invoice_template_mode(self, value: str | None) -> str:
+        normalized = (value or INVOICE_TEMPLATE_MODE_STANDARD).strip().lower()
+        if normalized not in VALID_INVOICE_TEMPLATE_MODES:
+            raise ValueError("Rechnungsvorlage ist ungültig")
         return normalized
 
     def _normalize_payment_term_days(self, value: int | str | None) -> int | None:

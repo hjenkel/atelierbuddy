@@ -23,6 +23,8 @@ class Settings:
     order_invoices_dir: Path
     invoice_assets_dir: Path
     invoice_logos_dir: Path
+    custom_invoice_template_dir: Path
+    custom_invoice_fonts_dir: Path
     works_cover_dir: Path
     app_host: str = "127.0.0.1"
     app_port: int = 8080
@@ -50,6 +52,8 @@ class Settings:
             self.order_invoices_dir,
             self.invoice_assets_dir,
             self.invoice_logos_dir,
+            self.custom_invoice_template_dir,
+            self.custom_invoice_fonts_dir,
             self.works_cover_dir,
         ):
             directory.mkdir(parents=True, exist_ok=True)
@@ -104,6 +108,8 @@ settings = Settings(
     order_invoices_dir=DATA_DIR / "archive" / "order_invoices",
     invoice_assets_dir=DATA_DIR / "archive" / "invoice_assets",
     invoice_logos_dir=DATA_DIR / "archive" / "invoice_assets" / "logos",
+    custom_invoice_template_dir=DATA_DIR / "invoice_templates" / "custom",
+    custom_invoice_fonts_dir=DATA_DIR / "invoice_templates" / "custom" / "fonts",
     works_cover_dir=DATA_DIR / "archive" / "work_covers",
     app_host=_env_str("BM_HOST", "127.0.0.1"),
     app_port=_env_int("BM_PORT", 8080),

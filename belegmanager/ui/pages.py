@@ -41,6 +41,8 @@ from ..services.order_service import (
 )
 from ..utils.storage import (
     is_supported_filename,
+    save_uploaded_invoice_template_file,
+    save_uploaded_invoice_template_font,
     save_uploaded_invoice_logo,
     save_uploaded_order_invoice,
     save_uploaded_work_cover,
@@ -6417,6 +6419,8 @@ def register_pages(services: ServiceContainer) -> None:
             logo_preview_container: Any = None
             logo_actions_container: Any = None
             logo_hint_label: Any = None
+            template_status_container: Any = None
+            template_mode_input: Any = None
             invoice_settings_expanded = {"value": False}
             invoice_settings_toggle_btn: Any = None
             invoice_settings_panel: Any = None
@@ -6493,6 +6497,51 @@ def register_pages(services: ServiceContainer) -> None:
                         remove_logo_btn.tooltip("Logo entfernen")
 
                 logo_hint_label.text = "Empfohlen: PNG mit transparentem Hintergrund mit ca. 1000 x 300 px."
+
+            def render_template_status() -> None:
+                template_status_container.clear()
+                with template_status_container:
+                    status = services.invoice_service.custom_template_status()
+                    html_icon = "check_circle" if status["html_exists"] else "radio_button_unchecked"
+                    css_icon = "check_circle" if status["css_exists"] else "radio_button_unchecked"
+                    state_text = "vollständig" if status["complete"] else "unvollständig"
+                    state_class = "text-emerald-700" if status["complete"] else "text-amber-700"
+                    with ui.row().classes("w-full items-center gap-2 wrap"):
+                        ui.icon(html_icon).classes("text-base")
+                        ui.label("invoice.html").classes("text-sm")
+                        ui.icon(css_icon).classes("text-base ml-3")
+                        ui.label("invoice.css").classes("text-sm")
+                        ui.label(f"Fonts: {status['font_count']}").classes("text-sm text-slate-600 ml-3")
+                    ui.label(f"Eigene Vorlage: {state_text}").classes(f"text-xs {state_class}")
+
+            def set_invoice_template_mode(event: events.ValueChangeEventArguments) -> None:
+                try:
+                    services.invoice_service.set_invoice_template_mode(str(event.value or "standard"))
+                    ui.notify("Rechnungsvorlage gespeichert", type="positive")
+                except Exception as exc:
+                    _notify_error("Rechnungsvorlage konnte nicht gespeichert werden", exc)
+
+            async def handle_template_file_upload(event: events.MultiUploadEventArguments) -> None:
+                if not event.files:
+                    return
+                try:
+                    for file_upload in event.files:
+                        await save_uploaded_invoice_template_file(file_upload)
+                    render_template_status()
+                    ui.notify("Vorlagendatei gespeichert", type="positive")
+                except Exception as exc:
+                    _notify_error("Vorlagendatei konnte nicht gespeichert werden", exc)
+
+            async def handle_template_font_upload(event: events.MultiUploadEventArguments) -> None:
+                if not event.files:
+                    return
+                try:
+                    for file_upload in event.files:
+                        await save_uploaded_invoice_template_font(file_upload)
+                    render_template_status()
+                    ui.notify("Fontdatei gespeichert", type="positive")
+                except Exception as exc:
+                    _notify_error("Fontdatei konnte nicht gespeichert werden", exc)
 
             def render_invoice_settings_visibility() -> None:
                 expanded = bool(invoice_settings_expanded["value"])
@@ -6647,6 +6696,66 @@ def register_pages(services: ServiceContainer) -> None:
                                 logo_actions_container = ui.row().classes("items-center gap-1")
                             logo_hint_label = ui.label("").classes("text-xs text-slate-600")
                             render_logo_controls()
+
+                    with ui.card().classes("bm-card p-4 w-full gap-3"):
+                        ui.label("Rechnungsvorlage").classes("text-base font-semibold")
+                        ui.label(
+                            "Wähle die mitgelieferte Standardvorlage oder eine eigene HTML/CSS-Vorlage."
+                        ).classes("text-sm text-slate-600")
+                        template_mode_input = ui.toggle(
+                            {"standard": "Standardvorlage", "custom": "Eigene Vorlage"},
+                            value=(invoice_profile.invoice_template_mode or "standard").strip().lower(),
+                            on_change=set_invoice_template_mode,
+                        ).props("unelevated no-caps").classes("bm-view-mode-btn bm-form-field")
+                        with ui.row().classes("w-full items-center gap-2 wrap"):
+                            template_html_upload = ui.upload(
+                                multiple=False,
+                                auto_upload=True,
+                                on_multi_upload=handle_template_file_upload,
+                                label="",
+                            ).classes("bm-hidden-upload")
+                            template_html_upload.props("accept=.html")
+                            html_btn = ui.button(
+                                "HTML hochladen",
+                                icon="upload_file",
+                                on_click=lambda: template_html_upload.run_method("pickFiles"),
+                            ).props("outline no-caps")
+                            html_btn.tooltip("invoice.html hochladen oder ersetzen")
+
+                            template_css_upload = ui.upload(
+                                multiple=False,
+                                auto_upload=True,
+                                on_multi_upload=handle_template_file_upload,
+                                label="",
+                            ).classes("bm-hidden-upload")
+                            template_css_upload.props("accept=.css")
+                            css_btn = ui.button(
+                                "CSS hochladen",
+                                icon="upload_file",
+                                on_click=lambda: template_css_upload.run_method("pickFiles"),
+                            ).props("outline no-caps")
+                            css_btn.tooltip("invoice.css hochladen oder ersetzen")
+
+                            template_font_upload = ui.upload(
+                                multiple=True,
+                                auto_upload=True,
+                                on_multi_upload=handle_template_font_upload,
+                                label="",
+                            ).classes("bm-hidden-upload")
+                            template_font_upload.props("accept=.ttf,.otf,.woff,.woff2")
+                            font_btn = ui.button(
+                                "Fonts hochladen",
+                                icon="font_download",
+                                on_click=lambda: template_font_upload.run_method("pickFiles"),
+                            ).props("outline no-caps")
+                            font_btn.tooltip("Fontdateien hochladen oder ersetzen")
+                        template_status_container = ui.column().classes("w-full gap-1")
+                        render_template_status()
+                        ui.link(
+                            "Anleitung für eigene Rechnungsvorlagen",
+                            "https://github.com/hjenkel/atelierbuddy/blob/main/docs/rechnungsvorlagen.md",
+                            new_tab=True,
+                        ).classes("text-sm")
 
                 async def save_invoice_profile() -> None:
                     await _flush_active_input(context.client)

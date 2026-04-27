@@ -164,6 +164,7 @@ class InvoiceProfile(SQLModel, table=True):
     bic: Optional[str] = Field(default=None)
     payment_term_days: Optional[int] = Field(default=None)
     logo_path: Optional[str] = Field(default=None)
+    invoice_template_mode: str = Field(default="standard")
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), index=True)
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 

@@ -22,6 +22,8 @@ except Exception:
 
 SUPPORTED_EXTENSIONS = {".pdf", ".jpg", ".jpeg", ".png", ".heic", ".heif"}
 SUPPORTED_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".heic", ".heif"}
+SUPPORTED_INVOICE_TEMPLATE_EXTENSIONS = {".html", ".css"}
+SUPPORTED_INVOICE_FONT_EXTENSIONS = {".ttf", ".otf", ".woff", ".woff2"}
 MAX_FILENAME_LENGTH = 180
 
 
@@ -211,6 +213,60 @@ async def save_uploaded_invoice_logo(file_upload: "FileUpload") -> Path:
     finally:
         source_tmp.unlink(missing_ok=True)
 
+    return destination
+
+
+async def save_uploaded_invoice_template_file(file_upload: "FileUpload") -> Path:
+    _ensure_safe_filename(file_upload.name)
+    suffix = Path(file_upload.name).suffix.lower()
+    if suffix not in SUPPORTED_INVOICE_TEMPLATE_EXTENSIONS:
+        raise ValueError(f"Nicht unterstützter Vorlagentyp: {file_upload.name}")
+    try:
+        upload_size = int(file_upload.size())
+    except Exception:
+        upload_size = 0
+    if upload_size > int(settings.max_upload_bytes):
+        raise ValueError(f"Datei zu groß (max. {settings.max_upload_mb} MB)")
+
+    target_dir = settings.custom_invoice_template_dir
+    target_dir.mkdir(parents=True, exist_ok=True)
+    destination_name = "invoice.html" if suffix == ".html" else "invoice.css"
+    destination = target_dir / destination_name
+    source_tmp = target_dir / f".{destination_name}.{uuid.uuid4().hex}.tmp"
+    await file_upload.save(source_tmp)
+    try:
+        _ensure_max_size(source_tmp)
+        source_tmp.replace(destination)
+    except Exception:
+        source_tmp.unlink(missing_ok=True)
+        raise
+    return destination
+
+
+async def save_uploaded_invoice_template_font(file_upload: "FileUpload") -> Path:
+    _ensure_safe_filename(file_upload.name)
+    filename = Path(file_upload.name).name
+    suffix = Path(filename).suffix.lower()
+    if suffix not in SUPPORTED_INVOICE_FONT_EXTENSIONS:
+        raise ValueError(f"Nicht unterstützter Fonttyp: {file_upload.name}")
+    try:
+        upload_size = int(file_upload.size())
+    except Exception:
+        upload_size = 0
+    if upload_size > int(settings.max_upload_bytes):
+        raise ValueError(f"Datei zu groß (max. {settings.max_upload_mb} MB)")
+
+    target_dir = settings.custom_invoice_fonts_dir
+    target_dir.mkdir(parents=True, exist_ok=True)
+    destination = target_dir / filename
+    source_tmp = target_dir / f".{Path(filename).stem}.{uuid.uuid4().hex}.tmp"
+    await file_upload.save(source_tmp)
+    try:
+        _ensure_max_size(source_tmp)
+        source_tmp.replace(destination)
+    except Exception:
+        source_tmp.unlink(missing_ok=True)
+        raise
     return destination
 
 

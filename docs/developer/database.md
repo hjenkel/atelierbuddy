@@ -91,10 +91,12 @@ Die Verkaufssumme wird nicht separat gespeichert, sondern aus diesen Positionen 
 - Belege liegen unter `data/archive/originals`.
 - Verkaufs-Rechnungsdokumente liegen unter `data/archive/order_invoices`.
 - Rechnungslogos liegen unter `data/archive/invoice_assets`.
+- Eigene Rechnungsvorlagen liegen unter `data/invoice_templates/custom`.
 - `/files/...` liefert beide Dateitypen aus dem Archiv aus.
 
 Für generierte Rechnungen gilt:
 - das PDF ist ein Snapshot des damaligen Verkaufs- und Rechnungsstellerstands
+- `invoice_profile.invoice_template_mode` wählt installweit zwischen Standard- und eigener Vorlage
 - spätere Änderungen an Kontakt, Positionen oder Rechnungsstellerdaten aktualisieren vorhandene PDFs nicht automatisch
 
 ### Auth-Tabellen

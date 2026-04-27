@@ -26,6 +26,8 @@ def _temp_settings(tmp_path: Path) -> Settings:
         order_invoices_dir=archive_dir / "order_invoices",
         invoice_assets_dir=archive_dir / "invoice_assets",
         invoice_logos_dir=archive_dir / "invoice_assets" / "logos",
+        custom_invoice_template_dir=data_dir / "invoice_templates" / "custom",
+        custom_invoice_fonts_dir=data_dir / "invoice_templates" / "custom" / "fonts",
         works_cover_dir=archive_dir / "work_covers",
     )
 
@@ -173,7 +175,9 @@ def test_init_db_migrates_legacy_schema_without_touching_archive(
     assert {"street", "house_number", "address_extra", "postal_code", "country"}.issubset(contact_columns)
     assert {"invoice_document_updated_at", "invoice_document_source"}.issubset(order_columns)
     assert {"color", "active", "price_cents", "cover_image_path", "created_on", "notes"}.issubset(project_columns)
-    assert {"display_name", "tax_id_type", "payment_term_days", "logo_path"}.issubset(profile_columns)
+    assert {"display_name", "tax_id_type", "payment_term_days", "logo_path", "invoice_template_mode"}.issubset(
+        profile_columns
+    )
     assert "status" in allocation_columns
     assert int(allocation_columns["cost_type_id"][3]) == 0
     assert migrated_country[0] == "DE"

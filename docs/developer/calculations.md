@@ -106,7 +106,8 @@ Zusätzliche Schutzregel:
 ## Rechnungserzeugung und Snapshot-Regel
 - automatische Rechnungserzeugung validiert den gespeicherten Verkaufsstand zusammen mit dem installweiten `invoice_profile`
 - vor dem Start der PDF-Erzeugung speichert die UI ungesicherte Formularänderungen automatisch
-- gerendert wird ein festes HTML/CSS-Standardtemplate
+- gerendert wird entweder das feste HTML/CSS-Standardtemplate oder die installweit ausgewählte eigene Vorlage
+- bei aktivierter eigener Vorlage fehlen `invoice.html` oder `invoice.css` als fachlicher Fehler vor der PDF-Erzeugung
 - das resultierende PDF wird als Snapshot gespeichert
 - Änderungen an Kontakt, Positionen, Rechnungsstellerdaten oder Logo wirken erst auf die nächste neu erzeugte Rechnung
 

@@ -11,6 +11,7 @@ Version-Quelle (Single Source of Truth): `pyproject.toml` -> `[project].version`
 
 ## Struktur
 - [Installation](./installation.md)
+- [Eigene Rechnungsvorlagen](./rechnungsvorlagen.md)
 - [Developer-Dokumentation](./developer/README.md)
 - Betrieb, Login und Kennwort-Reset sind in der Installationsdoku beschrieben.
 

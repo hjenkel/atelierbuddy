@@ -21,7 +21,7 @@ from .constants import (
     default_subcategory_name_for_cost_type,
 )
 from .fts import init_fts
-from .models import Contact, ContactCategory, CostAllocation, CostArea, CostSubcategory, CostType, InvoiceProfile, Order, OrderItem, Receipt
+from .models import Contact, ContactCategory, CostAllocation, CostArea, CostSubcategory, CostType, Order, OrderItem, Receipt
 from .receipt_completion import ReceiptCompletionService
 
 LOG = logging.getLogger(__name__)
@@ -381,6 +381,7 @@ def _migration_0009_invoice_profile_and_order_document_metadata(session: Session
                 bic TEXT,
                 payment_term_days INTEGER,
                 logo_path TEXT,
+                invoice_template_mode TEXT DEFAULT 'standard',
                 created_at TIMESTAMP,
                 updated_at TIMESTAMP
             )
@@ -388,10 +389,19 @@ def _migration_0009_invoice_profile_and_order_document_metadata(session: Session
         )
     )
 
-    profile_exists = session.get(InvoiceProfile, 1)
+    profile_exists = session.exec(text("SELECT id FROM invoice_profile WHERE id = 1")).first()
     if profile_exists is None:
-        session.add(InvoiceProfile(id=1))
-        session.flush()
+        session.exec(
+            text(
+                """
+                INSERT INTO invoice_profile (
+                    id, country, tax_id_type, invoice_template_mode, created_at, updated_at
+                ) VALUES (
+                    1, 'DE', 'tax_number', 'standard', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                """
+            )
+        )
 
     order_columns = _get_table_columns(session, "sales_order")
     if order_columns:
@@ -476,6 +486,24 @@ def _migration_0012_project_notes(session: Session) -> None:
         _add_column_if_missing(session, "project", project_columns, "notes", "TEXT")
 
 
+def _migration_0013_invoice_template_mode(session: Session) -> None:
+    profile_columns = _get_table_columns(session, "invoice_profile")
+    if profile_columns:
+        _add_column_if_missing(
+            session,
+            "invoice_profile",
+            profile_columns,
+            "invoice_template_mode",
+            "TEXT DEFAULT 'standard'",
+        )
+        session.exec(
+            text(
+                "UPDATE invoice_profile SET invoice_template_mode = 'standard' "
+                "WHERE invoice_template_mode IS NULL OR TRIM(invoice_template_mode) = ''"
+            )
+        )
+
+
 MIGRATIONS: tuple[MigrationStep, ...] = (
     MigrationStep(
         migration_id="0001_receipt_document_type_and_notes",
@@ -536,6 +564,11 @@ MIGRATIONS: tuple[MigrationStep, ...] = (
         migration_id="0012_project_notes",
         description="Add notes field to projects.",
         apply=_migration_0012_project_notes,
+    ),
+    MigrationStep(
+        migration_id="0013_invoice_template_mode",
+        description="Add invoice template mode selection.",
+        apply=_migration_0013_invoice_template_mode,
     ),
 )
 
@@ -713,6 +746,7 @@ def _validate_schema_state(session: Session) -> None:
             "bic",
             "payment_term_days",
             "logo_path",
+            "invoice_template_mode",
             "created_at",
             "updated_at",
         ),

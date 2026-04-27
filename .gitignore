@@ -9,6 +9,8 @@ __pycache__/
 .nicegui/
 data/archive/
 data/belegmanager.db
+data/customfonts/
+data/invoice_templates/
 .DS_Store
 belegmanager.egg-info/
 build/

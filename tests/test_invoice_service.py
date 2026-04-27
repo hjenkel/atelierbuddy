@@ -10,6 +10,7 @@ from sqlmodel import SQLModel, Session, create_engine, select
 from belegmanager.config import Settings
 from belegmanager.models import Contact, ContactCategory, Order, OrderItem
 from belegmanager.schemas import OrderItemInput
+from belegmanager.services import invoice_service as invoice_service_module
 from belegmanager.services.invoice_service import InvoiceService
 from belegmanager.services.order_service import OrderService
 from belegmanager.utils import storage
@@ -19,13 +20,20 @@ class StubRenderer:
     def __init__(self) -> None:
         self.last_html = ""
         self.last_stylesheet_path: Path | None = None
+        self.last_base_url = ""
 
     def render(self, html: str, *, stylesheet_path: Path, base_url: str, destination: Path) -> None:
-        del base_url
         self.last_html = html
         self.last_stylesheet_path = stylesheet_path
+        self.last_base_url = base_url
         destination.parent.mkdir(parents=True, exist_ok=True)
         destination.write_bytes(b"%PDF-1.7\n%stub\n")
+
+
+class FailingRenderer(StubRenderer):
+    def render(self, html: str, *, stylesheet_path: Path, base_url: str, destination: Path) -> None:
+        super().render(html, stylesheet_path=stylesheet_path, base_url=base_url, destination=destination)
+        raise RuntimeError("kaputt")
 
 
 def _temp_settings(tmp_path: Path) -> Settings:
@@ -44,6 +52,8 @@ def _temp_settings(tmp_path: Path) -> Settings:
         order_invoices_dir=archive_dir / "order_invoices",
         invoice_assets_dir=archive_dir / "invoice_assets",
         invoice_logos_dir=archive_dir / "invoice_assets" / "logos",
+        custom_invoice_template_dir=data_dir / "invoice_templates" / "custom",
+        custom_invoice_fonts_dir=data_dir / "invoice_templates" / "custom" / "fonts",
         works_cover_dir=archive_dir / "work_covers",
     )
 
@@ -66,6 +76,7 @@ def _build_services(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Or
     temp_settings = _temp_settings(tmp_path)
     temp_settings.ensure_dirs()
     monkeypatch.setattr(storage, "settings", temp_settings)
+    monkeypatch.setattr(invoice_service_module, "settings", temp_settings)
     renderer = StubRenderer()
     order_service = OrderService(db_engine=engine)
     invoice_service = InvoiceService(
@@ -164,6 +175,59 @@ def test_generate_invoice_assigns_number_date_and_generated_metadata(tmp_path: P
     assert "§19 UStG" in renderer.last_html
     assert "Atelier Buddy Studio" in renderer.last_html
     assert "DE02100100109307118603" in renderer.last_html
+
+
+def test_generate_invoice_uses_custom_template_when_selected(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    order_service, invoice_service, engine, renderer = _build_services(tmp_path, monkeypatch)
+    contact_id = _seed_contact(engine)
+    order = _create_order(order_service, contact_id=contact_id)
+    _fill_profile(invoice_service)
+    custom_dir = invoice_service_module.settings.custom_invoice_template_dir
+    custom_dir.mkdir(parents=True, exist_ok=True)
+    (custom_dir / "invoice.html").write_text(
+        "<html><body>custom:$invoice_number:$recipient_html:$items_html:$total_net:$logo_html</body></html>",
+        encoding="utf-8",
+    )
+    (custom_dir / "invoice.css").write_text("body { font-family: sans-serif; }", encoding="utf-8")
+    invoice_service.set_invoice_template_mode("custom")
+
+    invoice_service.generate_invoice_document(order.id or 0)
+
+    assert renderer.last_stylesheet_path == custom_dir / "invoice.css"
+    assert renderer.last_base_url == str(custom_dir)
+    assert "custom:RE-2026-0001" in renderer.last_html
+
+
+def test_generate_invoice_rejects_missing_custom_template_files(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    order_service, invoice_service, engine, _ = _build_services(tmp_path, monkeypatch)
+    contact_id = _seed_contact(engine)
+    order = _create_order(order_service, contact_id=contact_id)
+    _fill_profile(invoice_service)
+    invoice_service.set_invoice_template_mode("custom")
+
+    with pytest.raises(ValueError, match="invoice.html fehlt"):
+        invoice_service.generate_invoice_document(order.id or 0)
+
+
+def test_generate_invoice_does_not_fall_back_when_custom_rendering_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    order_service, invoice_service, engine, _ = _build_services(tmp_path, monkeypatch)
+    failing_renderer = FailingRenderer()
+    invoice_service._renderer = failing_renderer
+    contact_id = _seed_contact(engine)
+    order = _create_order(order_service, contact_id=contact_id)
+    _fill_profile(invoice_service)
+    custom_dir = invoice_service_module.settings.custom_invoice_template_dir
+    custom_dir.mkdir(parents=True, exist_ok=True)
+    (custom_dir / "invoice.html").write_text("<html><body>custom $invoice_number</body></html>", encoding="utf-8")
+    (custom_dir / "invoice.css").write_text("body { color: black; }", encoding="utf-8")
+    invoice_service.set_invoice_template_mode("custom")
+
+    with pytest.raises(RuntimeError, match="kaputt"):
+        invoice_service.generate_invoice_document(order.id or 0)
+
+    assert failing_renderer.last_stylesheet_path == custom_dir / "invoice.css"
 
 
 def test_generate_invoice_rejects_incomplete_invoice_profile(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
