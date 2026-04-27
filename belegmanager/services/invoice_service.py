@@ -246,10 +246,7 @@ class InvoiceService:
             template_dir = self._template_dir_for_profile(profile)
 
             effective_invoice_date = order.invoice_date or self._today_provider()
-            effective_invoice_number = (order.invoice_number or "").strip() or self._next_invoice_number(
-                session,
-                invoice_year=effective_invoice_date.year,
-            )
+            effective_invoice_number = self._invoice_number_for_order(order)
             self._ensure_invoice_number_available(session, effective_invoice_number, order.id or 0)
 
             destination = create_generated_order_invoice_path(order.id or 0, effective_invoice_number)
@@ -379,18 +376,11 @@ class InvoiceService:
                 issues.append(f"{label} in der Empfängeradresse fehlt")
         return issues
 
-    def _next_invoice_number(self, session: Session, *, invoice_year: int) -> str:
-        prefix = f"RE-{invoice_year}-"
-        existing_numbers = session.exec(select(Order.invoice_number).where(Order.invoice_number.startswith(prefix))).all()
-        max_sequence = 0
-        for value in existing_numbers:
-            normalized = (value or "").strip()
-            if not normalized.startswith(prefix):
-                continue
-            sequence_part = normalized[len(prefix) :]
-            if sequence_part.isdigit():
-                max_sequence = max(max_sequence, int(sequence_part))
-        return f"{prefix}{max_sequence + 1:04d}"
+    def _invoice_number_for_order(self, order: Order) -> str:
+        internal_number = (order.internal_number or "").strip()
+        if not internal_number:
+            raise ValueError("Verkaufsnummer fehlt")
+        return f"RE-{internal_number}"
 
     def _ensure_invoice_number_available(self, session: Session, invoice_number: str, order_id: int) -> None:
         existing = session.exec(

@@ -89,9 +89,8 @@ Rechnungsnummer:
 - wird beim Speichern getrimmt
 - ist verpflichtend, sobald `invoice_date` gesetzt ist
 - muss eindeutig sein
-- automatische Vergabe beim PDF-Generieren läuft im Format `RE-YYYY-0001`
-- die Rechnungssequenz ist unabhängig von der internen Verkaufsnummer
-- wenn beim PDF-Generieren noch kein Rechnungsdatum gesetzt ist, wird zuerst `heute` als effektives Rechnungsdatum verwendet und daraus das Rechnungsjahr abgeleitet
+- PDF-Generieren setzt sie immer im Format `RE-<Verkaufsnummer>`, zum Beispiel `RE-2026-0001`
+- wenn beim PDF-Generieren noch kein Rechnungsdatum gesetzt ist, wird zuerst `heute` als effektives Rechnungsdatum verwendet
 
 ## Statuslogik für Verkäufe
 Der Status wird nicht gespeichert, sondern aus Feldern abgeleitet:

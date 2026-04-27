@@ -272,7 +272,7 @@ def test_generate_invoice_replaces_existing_document_and_removes_old_file(tmp_pa
     assert Path(result.generated_document_path).exists()
 
 
-def test_generate_invoice_uses_existing_manual_invoice_number_sequence(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_generate_invoice_uses_order_number_as_invoice_number(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     order_service, invoice_service, engine, _ = _build_services(tmp_path, monkeypatch)
     contact_id = _seed_contact(engine)
     first = _create_order(order_service, contact_id=contact_id)
@@ -303,5 +303,40 @@ def test_generate_invoice_uses_existing_manual_invoice_number_sequence(tmp_path:
         stored_order = session.get(Order, second.id)
 
     assert stored_order is not None
-    assert stored_order.invoice_number == "RE-2026-0004"
-    assert result.order.invoice_number == "RE-2026-0004"
+    assert stored_order.invoice_number == "RE-2026-0002"
+    assert result.order.invoice_number == "RE-2026-0002"
+
+
+def test_generate_invoice_replaces_existing_draft_invoice_number_with_order_based_number(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    order_service, invoice_service, engine, _ = _build_services(tmp_path, monkeypatch)
+    contact_id = _seed_contact(engine)
+    order = _create_order(order_service, contact_id=contact_id)
+    _fill_profile(invoice_service)
+    order_service.save_order(
+        order_id=order.id or 0,
+        contact_id=contact_id,
+        sale_date=date(2026, 4, 10),
+        invoice_date=date(2026, 4, 12),
+        invoice_number="ALT-123",
+        notes="Manuell vergeben",
+        items=[
+            OrderItemInput(
+                description="Originaldruck",
+                quantity=Decimal("1.000"),
+                unit_price_cents=12000,
+                project_id=None,
+                position=1,
+            )
+        ],
+    )
+
+    result = invoice_service.generate_invoice_document(order.id or 0)
+
+    with Session(engine) as session:
+        stored_order = session.get(Order, order.id)
+
+    assert stored_order is not None
+    assert stored_order.invoice_number == "RE-2026-0001"
+    assert result.order.invoice_number == "RE-2026-0001"
