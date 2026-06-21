@@ -240,7 +240,7 @@ class Order(SQLModel, table=True):
 
     id: Optional[int] = Field(default=None, primary_key=True)
     internal_number: str = Field(index=True, unique=True)
-    contact_id: int = Field(foreign_key="contact.id", index=True)
+    contact_id: Optional[int] = Field(default=None, foreign_key="contact.id", index=True)
     sale_date: date = Field(index=True)
     invoice_date: Optional[date] = Field(default=None, index=True)
     invoice_number: Optional[str] = Field(default=None, index=True, unique=True)
@@ -254,7 +254,7 @@ class Order(SQLModel, table=True):
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     deleted_at: Optional[datetime] = Field(default=None, index=True)
 
-    contact: Contact = Relationship(back_populates="orders")
+    contact: Optional[Contact] = Relationship(back_populates="orders")
     items: List["OrderItem"] = Relationship(back_populates="order")
 
 

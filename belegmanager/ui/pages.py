@@ -55,6 +55,7 @@ DOC_TYPE_CREDIT_NOTE = "credit_note"
 INVOICE_GENERATION_FEEDBACK_TIMEOUT_SECONDS = 8
 INVOICE_GENERATION_MAX_WAIT_SECONDS = 65
 LOG = logging.getLogger(__name__)
+RECEIPT_UPLOAD_ACCEPT = "application/pdf,image/*,.pdf,.jpg,.jpeg,.png,.heic,.heif"
 _NAV_STATE_STORAGE_KEY = "atelier_buddy_nav_state"
 _DEFAULT_NAV_STATE = {
     "sidebar_expanded": True,
@@ -1332,6 +1333,7 @@ def register_pages(services: ServiceContainer) -> None:
                 new_entries, skipped = _build_staged_upload_entries(event.files)
                 staged_uploads.extend(new_entries)
                 added = len(new_entries)
+                upload_widget.reset()
 
                 if added:
                     ui.notify(f"{added} Datei(en) hinzugefügt", type="positive")
@@ -1341,25 +1343,19 @@ def register_pages(services: ServiceContainer) -> None:
                 staging_summary.text = f"{len(staged_uploads)} Datei(en) ausgewählt."
                 render_staging()
 
-            upload_widget = ui.upload(
-                multiple=True,
-                auto_upload=True,
-                on_multi_upload=handle_upload,
-                label="",
-            ).classes("bm-hidden-upload")
-            upload_widget.props("accept=.pdf,.jpg,.jpeg,.png,.heic,.heif")
-
             with ui.card().classes("w-full bm-upload-zone p-4"):
                 with ui.column().classes("w-full gap-2"):
                     ui.label("Dateien auswählen").classes("text-base font-medium")
                     ui.label(
                         "PDF, JPG, PNG, HEIC oder HEIF. Mehrfachauswahl wird unterstützt.",
                     ).classes("text-sm text-slate-600")
-                    ui.button(
-                        "Dateien auswählen",
-                        icon="upload_file",
-                        on_click=lambda: upload_widget.run_method("pickFiles"),
-                    ).props("color=primary")
+                    upload_widget = ui.upload(
+                        multiple=True,
+                        auto_upload=True,
+                        on_multi_upload=handle_upload,
+                        label="Dateien auswählen",
+                    ).classes("w-full")
+                    upload_widget.props(f"accept={RECEIPT_UPLOAD_ACCEPT}")
 
             async def start_import() -> None:
                 if not staged_uploads:
@@ -3263,7 +3259,7 @@ def register_pages(services: ServiceContainer) -> None:
                 contact_hint = ui.row().classes("w-full items-center gap-2 hidden")
                 with contact_hint:
                     ui.icon("info")
-                    ui.label("Für neue Verkäufe brauchst du zuerst mindestens einen Kontakt.")
+                    ui.label("Kontakte sind optional; für Rechnungen wird eine vollständige Empfängeradresse benötigt.")
                     ui.button("Zu Kontakten", on_click=lambda: ui.navigate.to("/kontakte")).props("flat color=primary")
 
                 filter_row = ui.row().classes("w-full bm-filter-row hidden")
@@ -3287,7 +3283,7 @@ def register_pages(services: ServiceContainer) -> None:
                     project_select.props("use-chips")
                     status_select = ui.select(
                         {
-                            "draft": "Entwurf",
+                            "sale": "Verkauf",
                             "document_missing": "Dokument fehlt",
                             "invoiced": "Abgerechnet",
                         },
@@ -3381,29 +3377,21 @@ def register_pages(services: ServiceContainer) -> None:
                         contact_hint.classes(add="hidden")
                         create_button.enable()
                     else:
-                        create_button.disable()
+                        create_button.enable()
+                        contact_hint.classes(add="hidden")
                         if view_mode == "deleted":
                             contact_hint.classes(add="hidden")
 
                 def open_create_order_dialog() -> None:
                     contact_map = contact_options()
-                    if not contact_map:
-                        ui.notify("Bitte zuerst mindestens einen Kontakt anlegen", type="warning")
-                        ui.navigate.to("/kontakte")
-                        return
-
                     category_options_map = contact_category_options()
-                    if not category_options_map:
-                        ui.notify("Bitte zuerst mindestens eine Kontaktkategorie anlegen", type="warning")
-                        ui.navigate.to("/kontakte")
-                        return
                     default_category_id = next(
                         (
                             category_id
                             for category_id, label in category_options_map.items()
                             if label == DEFAULT_CONTACT_CATEGORY_NAME
                         ),
-                        next(iter(category_options_map)),
+                        next(iter(category_options_map), None),
                     )
 
                     with ui.dialog() as dialog, ui.card().classes("p-4 w-[560px] max-w-full"):
@@ -3411,8 +3399,9 @@ def register_pages(services: ServiceContainer) -> None:
                         with ui.row().classes("w-full gap-3 wrap items-center"):
                             contact_input = ui.select(
                                 contact_map,
-                                value=next(iter(contact_map)),
+                                value=next(iter(contact_map), None),
                                 label="Kontakt",
+                                clearable=True,
                             ).props("use-input input-debounce=0").classes("min-w-0 flex-1")
                             contact_add_btn = ui.button(
                                 icon="add",
@@ -3437,6 +3426,9 @@ def register_pages(services: ServiceContainer) -> None:
                             contact_input.set_options(contact_map, value=next_value)
 
                         def open_quick_contact_dialog() -> None:
+                            if not isinstance(default_category_id, int):
+                                ui.notify("Bitte zuerst mindestens eine Kontaktkategorie anlegen", type="warning")
+                                return
                             with ui.dialog() as contact_dialog, ui.card().classes("p-4 w-[760px] max-w-full"):
                                 ui.label("Neuer Kontakt").classes("text-lg font-semibold")
                                 contact_fields = build_contact_inputs(
@@ -3467,12 +3459,9 @@ def register_pages(services: ServiceContainer) -> None:
 
                         def create_order() -> None:
                             contact_id = contact_input.value
-                            if not isinstance(contact_id, int):
-                                ui.notify("Kontakt fehlt", type="negative")
-                                return
                             try:
                                 order = services.order_service.create_order(
-                                    contact_id=contact_id,
+                                    contact_id=contact_id if isinstance(contact_id, int) else None,
                                     sale_date=_parse_iso_date(sale_date_input.value),
                                 )
                             except Exception as exc:
@@ -3571,7 +3560,7 @@ def register_pages(services: ServiceContainer) -> None:
                                     "invoice_date": order.invoice_date.isoformat() if order.invoice_date else "-",
                                     "status": order_status_label(order),
                                     "status_color": {
-                                        "draft": "grey-6",
+                                        "sale": "grey-6",
                                         "document_missing": "warning",
                                         "invoiced": "positive",
                                     }[status_key],
@@ -3585,7 +3574,7 @@ def register_pages(services: ServiceContainer) -> None:
                                     "mobile_secondary": _contact_display_name(order.contact) if order.contact else "Kein Kontakt hinterlegt",
                                     "mobile_badge": order_status_label(order),
                                     "mobile_badge_color": {
-                                        "draft": "grey-6",
+                                        "sale": "grey-6",
                                         "document_missing": "warning",
                                         "invoiced": "positive",
                                     }[status_key],
@@ -4156,7 +4145,7 @@ def register_pages(services: ServiceContainer) -> None:
 
                 with ui.row().classes("w-full gap-3 wrap items-end bm-form-row"):
                     with ui.row().classes("min-w-[260px] flex-[1_1_320px] gap-3 items-center bm-form-row"):
-                        contact_input = ui.select(contact_map, value=order.contact_id, label="Kontakt").props(
+                        contact_input = ui.select(contact_map, value=order.contact_id, label="Kontakt", clearable=True).props(
                             "use-input input-debounce=0"
                         ).classes("min-w-0 flex-1 bm-form-field")
                         contact_edit_btn = ui.button(
@@ -4340,7 +4329,7 @@ def register_pages(services: ServiceContainer) -> None:
                         return "Abgerechnet"
                     if (has_invoice_date or has_invoice_number) and not has_invoice_document:
                         return "Dokument fehlt"
-                    return "Entwurf"
+                    return "Verkauf"
 
                 def apply_project_mode_visibility() -> None:
                     if bool(project_mode_input.value):
@@ -4461,6 +4450,9 @@ def register_pages(services: ServiceContainer) -> None:
                         def on_project_change(value: Any) -> None:
                             mark_dirty()
                             row["project_id"] = int(value) if value else None
+                            if row["project_id"] and not (row.get("description") or "").strip():
+                                row["description"] = project_map.get(row["project_id"], "")
+                                description_input.value = row["description"]
                             refresh_total_preview()
 
                         description_input.on_value_change(lambda e: on_description_change(e.value))
@@ -4530,11 +4522,9 @@ def register_pages(services: ServiceContainer) -> None:
 
                 def persist_order_from_form() -> Order:
                     contact_id = contact_input.value
-                    if not isinstance(contact_id, int):
-                        raise ValueError("Kontakt fehlt")
                     return services.order_service.save_order(
                         order_id=oid,
-                        contact_id=contact_id,
+                        contact_id=contact_id if isinstance(contact_id, int) else None,
                         sale_date=_parse_iso_date(sale_date_input.value),
                         invoice_date=_parse_iso_date(invoice_date_input.value),
                         invoice_number=invoice_number_input.value,
@@ -6156,10 +6146,10 @@ def register_pages(services: ServiceContainer) -> None:
                             project_id=selected_income_project_id,
                         )
                         title = selected_income_project_name or "Ausgewähltes Projekt"
-                        ui.label(f"Verkäufe mit Rechnungsdatum zu: {title}").classes("text-base font-semibold bm-report-title")
+                        ui.label(f"Verkäufe mit Verkaufsdatum zu: {title}").classes("text-base font-semibold bm-report-title")
                         if not rows_raw:
                             with ui.card().classes("bm-card p-3"):
-                                ui.label("Keine Verkäufe mit Rechnungsdatum im Zeitraum.")
+                                ui.label("Keine Verkäufe mit Verkaufsdatum im Zeitraum.")
                             return
 
                         rows = [
@@ -6173,14 +6163,14 @@ def register_pages(services: ServiceContainer) -> None:
                                 "mobile_title": item.internal_number,
                                 "mobile_primary_left": item.contact_name,
                                 "mobile_primary_right": _format_cents(item.total_cents, settings.default_currency),
-                                "mobile_secondary": f"Rechnungsdatum {item.invoice_date.isoformat()}",
+                                "mobile_secondary": f"Verkaufsdatum {item.invoice_date.isoformat()}",
                             }
                             for item in rows_raw
                         ]
                         columns = [
                             {"name": "internal_number", "label": "Verkaufsnummer", "field": "internal_number", "align": "left"},
                             {"name": "contact", "label": "Kontakt", "field": "contact", "align": "left"},
-                            {"name": "invoice_date", "label": "Rechnungsdatum", "field": "invoice_date", "align": "left"},
+                            {"name": "invoice_date", "label": "Verkaufsdatum", "field": "invoice_date", "align": "left"},
                             {
                                 "name": "total",
                                 "label": f"Projektanteil ({settings.default_currency})",
@@ -6208,12 +6198,12 @@ def register_pages(services: ServiceContainer) -> None:
                     income_report = services.report_service.build_income_summary(current_from, current_to)
                     with income_summary_container:
                         with ui.card().classes("bm-card p-3"):
-                            ui.label("Verkäufe mit Rechnungsdatum").classes("text-sm font-semibold")
+                            ui.label("Verkäufe im Zeitraum").classes("text-sm font-semibold")
                             ui.label(_format_cents(income_report.overall_total_cents, settings.default_currency)).classes(
                                 f"text-2xl font-bold {income_amount_class(income_report.overall_total_cents)}"
                             )
                             ui.label(
-                                f"Auswertung nach Rechnungsdatum · {income_report.order_count} Verkäufe"
+                                f"Auswertung nach Verkaufsdatum · {income_report.order_count} Verkäufe"
                             ).classes("text-xs text-slate-600")
 
                     with income_projects_container:

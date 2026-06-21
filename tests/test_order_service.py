@@ -147,6 +147,53 @@ def test_save_order_allows_items_without_project() -> None:
     assert saved.items[0].project_id is None
 
 
+def test_save_order_allows_missing_contact() -> None:
+    service, _, engine = _build_services()
+    contact_id, project_id = _seed_contact_and_project(engine)
+    order = service.create_order(contact_id=None, sale_date=date(2026, 1, 10))
+
+    saved = service.save_order(
+        order_id=order.id or 0,
+        contact_id=None,
+        sale_date=date(2026, 1, 10),
+        invoice_date=None,
+        invoice_number=None,
+        notes=None,
+        items=[
+            OrderItemInput(
+                description="Barverkauf",
+                quantity=Decimal("1.000"),
+                unit_price_cents=12000,
+                project_id=project_id,
+                position=1,
+            )
+        ],
+    )
+
+    assert saved.contact_id is None
+    assert order_status_key(saved) == "sale"
+
+    saved_with_contact = service.save_order(
+        order_id=order.id or 0,
+        contact_id=contact_id,
+        sale_date=date(2026, 1, 10),
+        invoice_date=None,
+        invoice_number=None,
+        notes=None,
+        items=[
+            OrderItemInput(
+                description="Barverkauf",
+                quantity=Decimal("1.000"),
+                unit_price_cents=12000,
+                project_id=project_id,
+                position=1,
+            )
+        ],
+    )
+
+    assert saved_with_contact.contact_id == contact_id
+
+
 def test_invoice_number_must_be_unique_after_trimming() -> None:
     service, _, engine = _build_services()
     contact_id, project_id = _seed_contact_and_project(engine)
@@ -210,16 +257,16 @@ def test_order_search_filters_by_status_and_project() -> None:
         session.refresh(second_project)
         second_project_id = second_project.id or 0
 
-    draft_order = service.create_order(contact_id=contact_id, sale_date=date(2026, 1, 10))
+    sale_order = service.create_order(contact_id=contact_id, sale_date=date(2026, 1, 10))
     invoiced_order = service.create_order(contact_id=contact_id, sale_date=date(2026, 1, 11))
 
     service.save_order(
-        order_id=draft_order.id or 0,
+        order_id=sale_order.id or 0,
         contact_id=contact_id,
         sale_date=date(2026, 1, 10),
         invoice_date=None,
         invoice_number=None,
-        notes="Entwurf",
+        notes="Barverkauf ohne Rechnung",
         items=[
             OrderItemInput(
                 description="Posterverkauf",
@@ -265,15 +312,15 @@ def test_order_search_filters_by_status_and_project() -> None:
     assert stored_order.invoice_number == "RE-2026-02"
 
 
-def test_order_status_distinguishes_draft_missing_document_and_invoiced() -> None:
+def test_order_status_distinguishes_sale_missing_document_and_invoiced() -> None:
     service, search_service, engine = _build_services()
     contact_id, project_id = _seed_contact_and_project(engine)
-    draft_order = service.create_order(contact_id=contact_id, sale_date=date(2026, 1, 10))
+    sale_order = service.create_order(contact_id=contact_id, sale_date=date(2026, 1, 10))
     document_missing_order = service.create_order(contact_id=contact_id, sale_date=date(2026, 1, 11))
     invoiced_order = service.create_order(contact_id=contact_id, sale_date=date(2026, 1, 12))
 
     service.save_order(
-        order_id=draft_order.id or 0,
+        order_id=sale_order.id or 0,
         contact_id=contact_id,
         sale_date=date(2026, 1, 10),
         invoice_date=None,
@@ -281,7 +328,7 @@ def test_order_status_distinguishes_draft_missing_document_and_invoiced() -> Non
         notes=None,
         items=[
             OrderItemInput(
-                description="Entwurf",
+                description="Verkauf",
                 quantity=Decimal("1.000"),
                 unit_price_cents=12000,
                 project_id=project_id,
@@ -330,15 +377,15 @@ def test_order_status_distinguishes_draft_missing_document_and_invoiced() -> Non
     )
 
     with Session(engine) as session:
-        stored_draft = session.get(Order, draft_order.id)
+        stored_sale = session.get(Order, sale_order.id)
         stored_missing = session.get(Order, document_missing_order.id)
         stored_invoiced = session.get(Order, invoiced_order.id)
 
-    assert stored_draft is not None
+    assert stored_sale is not None
     assert stored_missing is not None
     assert stored_invoiced is not None
-    assert order_status_key(stored_draft) == "draft"
-    assert order_status_label(stored_draft) == "Entwurf"
+    assert order_status_key(stored_sale) == "sale"
+    assert order_status_label(stored_sale) == "Verkauf"
     assert order_status_key(stored_missing) == "document_missing"
     assert order_status_label(stored_missing) == "Dokument fehlt"
     assert order_status_key(stored_invoiced) == "invoiced"

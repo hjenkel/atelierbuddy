@@ -136,7 +136,7 @@ def _build_service(tmp_path: Path) -> ReportService:
             invoice_date=date(2026, 1, 18),
             invoice_number="RE-2026-02",
         )
-        draft_order = Order(
+        sale_without_invoice = Order(
             internal_number="2026-0003",
             contact_id=contact.id or 0,
             sale_date=date(2026, 1, 21),
@@ -151,7 +151,7 @@ def _build_service(tmp_path: Path) -> ReportService:
         )
         session.add(invoiced_multi_project)
         session.add(invoiced_single_project)
-        session.add(draft_order)
+        session.add(sale_without_invoice)
         session.add(deleted_invoiced_order)
         session.flush()
 
@@ -271,7 +271,7 @@ def _build_service(tmp_path: Path) -> ReportService:
         )
         session.add(
             OrderItem(
-                order_id=draft_order.id or 0,
+                order_id=sale_without_invoice.id or 0,
                 position=1,
                 description="Noch offen",
                 quantity=Decimal("1.000"),
@@ -324,16 +324,16 @@ def test_build_subcategory_breakdown_respects_date_range(tmp_path: Path) -> None
     assert breakdown[0].total_cents == 6000
 
 
-def test_build_income_summary_uses_only_invoiced_active_orders(tmp_path: Path) -> None:
+def test_build_income_summary_uses_active_sales_with_items(tmp_path: Path) -> None:
     service = _build_service(tmp_path)
     summary = service.build_income_summary(date(2026, 1, 1), date(2026, 1, 31))
 
-    assert summary.order_count == 2
-    assert summary.overall_total_cents == 21500
+    assert summary.order_count == 3
+    assert summary.overall_total_cents == 26500
 
     by_name = {row.project_name: row.total_cents for row in summary.totals_by_project}
     assert by_name["Mural"] == 16500
-    assert by_name["Album"] == 3000
+    assert by_name["Album"] == 8000
     assert by_name["Ohne Projekt"] == 2000
 
 

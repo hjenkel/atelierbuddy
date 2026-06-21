@@ -249,6 +249,32 @@ def test_generate_invoice_rejects_incomplete_contact_address(tmp_path: Path, mon
         invoice_service.generate_invoice_document(order.id or 0)
 
 
+def test_generate_invoice_rejects_missing_contact(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    order_service, invoice_service, _, _ = _build_services(tmp_path, monkeypatch)
+    order = order_service.create_order(contact_id=None, sale_date=date(2026, 4, 10))
+    order_service.save_order(
+        order_id=order.id or 0,
+        contact_id=None,
+        sale_date=date(2026, 4, 10),
+        invoice_date=None,
+        invoice_number=None,
+        notes=None,
+        items=[
+            OrderItemInput(
+                description="Barverkauf",
+                quantity=Decimal("1.000"),
+                unit_price_cents=12000,
+                project_id=None,
+                position=1,
+            )
+        ],
+    )
+    _fill_profile(invoice_service)
+
+    with pytest.raises(ValueError, match="Kontakt fehlt"):
+        invoice_service.generate_invoice_document(order.id or 0)
+
+
 def test_generate_invoice_replaces_existing_document_and_removes_old_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     order_service, invoice_service, engine, _ = _build_services(tmp_path, monkeypatch)
     contact_id = _seed_contact(engine)

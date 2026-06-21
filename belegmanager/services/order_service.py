@@ -25,12 +25,12 @@ def order_status_key(order: Order) -> str:
         return "invoiced"
     if (order.invoice_date is not None or has_invoice_number) and not has_invoice_document:
         return "document_missing"
-    return "draft"
+    return "sale"
 
 
 def order_status_label(order: Order) -> str:
     return {
-        "draft": "Entwurf",
+        "sale": "Verkauf",
         "document_missing": "Dokument fehlt",
         "invoiced": "Abgerechnet",
     }[order_status_key(order)]
@@ -61,14 +61,12 @@ class OrderService:
     def __init__(self, db_engine=engine) -> None:
         self._engine = db_engine
 
-    def create_order(self, *, contact_id: int, sale_date: date | None = None) -> Order:
+    def create_order(self, *, contact_id: int | None = None, sale_date: date | None = None) -> Order:
         effective_sale_date = sale_date or date.today()
         with Session(self._engine) as session:
-            contact = session.get(Contact, contact_id)
-            if contact is None:
-                raise ValueError("Kontakt nicht gefunden")
+            normalized_contact_id = self._normalize_contact_id(session, contact_id)
             order = Order(
-                contact_id=contact_id,
+                contact_id=normalized_contact_id,
                 sale_date=effective_sale_date,
                 internal_number=self._next_internal_number(session, effective_sale_date),
             )
@@ -81,7 +79,7 @@ class OrderService:
         self,
         *,
         order_id: int,
-        contact_id: int,
+        contact_id: int | None,
         sale_date: date | None,
         invoice_date: date | None,
         invoice_number: str | None,
@@ -107,22 +105,20 @@ class OrderService:
             if order.deleted_at is not None:
                 raise ValueError("Gelöschter Verkauf kann nicht gespeichert werden")
 
-            contact = session.get(Contact, contact_id)
-            if contact is None:
-                raise ValueError("Kontakt nicht gefunden")
+            normalized_contact_id = self._normalize_contact_id(session, contact_id)
 
             self._ensure_invoice_number_available(session, normalized_invoice_number, order_id)
             self._ensure_projects_exist(session, normalized_items)
             self._ensure_relevant_fields_can_be_changed(
                 order=order,
-                contact_id=contact_id,
+                contact_id=normalized_contact_id,
                 sale_date=sale_date,
                 invoice_date=invoice_date,
                 invoice_number=normalized_invoice_number,
                 items=normalized_items,
             )
 
-            order.contact_id = contact_id
+            order.contact_id = normalized_contact_id
             order.sale_date = sale_date
             order.invoice_date = invoice_date
             order.invoice_number = normalized_invoice_number
@@ -273,6 +269,20 @@ class OrderService:
             raise ValueError(f"Notiz darf maximal {MAX_NOTES_LENGTH} Zeichen lang sein")
         return value
 
+    def _normalize_contact_id(self, session: Session, contact_id: int | None) -> int | None:
+        if contact_id is None:
+            return None
+        try:
+            normalized_contact_id = int(contact_id)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("Kontakt ist ungültig") from exc
+        if normalized_contact_id <= 0:
+            return None
+        contact = session.get(Contact, normalized_contact_id)
+        if contact is None:
+            raise ValueError("Kontakt nicht gefunden")
+        return normalized_contact_id
+
     def _normalize_items(self, items: list[OrderItemInput]) -> list[OrderItemInput]:
         if not items:
             raise ValueError("Mindestens eine Position ist erforderlich")
@@ -362,7 +372,7 @@ class OrderService:
         self,
         *,
         order: Order,
-        contact_id: int,
+        contact_id: int | None,
         sale_date: date,
         invoice_date: date | None,
         invoice_number: str | None,

@@ -48,7 +48,7 @@ Seit `0.3.4` trägt jede Zuordnungszeile zusätzlich einen Wirksamkeitsstatus:
 ### `sales_order`
 Verkaufskopf mit:
 - interner Verkaufsnummer
-- Pflicht-Kontakt
+- optionalem Kontakt
 - Verkaufsdatum
 - optionalem Rechnungsdatum
 - optionaler, eindeutiger Rechnungsnummer

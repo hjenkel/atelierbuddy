@@ -504,6 +504,58 @@ def _migration_0013_invoice_template_mode(session: Session) -> None:
         )
 
 
+def _migration_0014_nullable_order_contact(session: Session) -> None:
+    order_columns = _get_table_columns(session, "sales_order")
+    if not order_columns:
+        return
+    contact_info = _column_info(session, "sales_order", "contact_id")
+    if contact_info is None or not int(contact_info[3]):
+        return
+
+    session.exec(text("DROP TABLE IF EXISTS sales_order__new"))
+    session.exec(
+        text(
+            """
+            CREATE TABLE sales_order__new (
+                id INTEGER PRIMARY KEY,
+                internal_number TEXT NOT NULL,
+                contact_id INTEGER,
+                sale_date DATE NOT NULL,
+                invoice_date DATE,
+                invoice_number TEXT,
+                invoice_document_path TEXT,
+                invoice_document_original_filename TEXT,
+                invoice_document_uploaded_at TIMESTAMP,
+                invoice_document_updated_at TIMESTAMP,
+                invoice_document_source TEXT,
+                notes TEXT,
+                created_at TIMESTAMP NOT NULL,
+                updated_at TIMESTAMP NOT NULL,
+                deleted_at TIMESTAMP
+            )
+            """
+        )
+    )
+    session.exec(
+        text(
+            """
+            INSERT INTO sales_order__new (
+                id, internal_number, contact_id, sale_date, invoice_date, invoice_number,
+                invoice_document_path, invoice_document_original_filename, invoice_document_uploaded_at,
+                invoice_document_updated_at, invoice_document_source, notes, created_at, updated_at, deleted_at
+            )
+            SELECT
+                id, internal_number, contact_id, sale_date, invoice_date, invoice_number,
+                invoice_document_path, invoice_document_original_filename, invoice_document_uploaded_at,
+                invoice_document_updated_at, invoice_document_source, notes, created_at, updated_at, deleted_at
+            FROM sales_order
+            """
+        )
+    )
+    session.exec(text("DROP TABLE sales_order"))
+    session.exec(text("ALTER TABLE sales_order__new RENAME TO sales_order"))
+
+
 MIGRATIONS: tuple[MigrationStep, ...] = (
     MigrationStep(
         migration_id="0001_receipt_document_type_and_notes",
@@ -569,6 +621,11 @@ MIGRATIONS: tuple[MigrationStep, ...] = (
         migration_id="0013_invoice_template_mode",
         description="Add invoice template mode selection.",
         apply=_migration_0013_invoice_template_mode,
+    ),
+    MigrationStep(
+        migration_id="0014_nullable_order_contact",
+        description="Allow sales orders without a contact.",
+        apply=_migration_0014_nullable_order_contact,
     ),
 )
 
@@ -725,6 +782,7 @@ def _validate_schema_state(session: Session) -> None:
             "updated_at",
         ),
     )
+    _validate_column_nullable(session, "sales_order", "contact_id")
     _validate_required_columns(
         session,
         "invoice_profile",

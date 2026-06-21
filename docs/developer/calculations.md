@@ -94,7 +94,7 @@ Rechnungsnummer:
 
 ## Statuslogik für Verkäufe
 Der Status wird nicht gespeichert, sondern aus Feldern abgeleitet:
-- `Entwurf`: keine relevanten Rechnungsdaten oder noch kein vollständiger Rechnungsstand
+- `Verkauf`: regulärer Verkauf ohne Rechnungsdaten
 - `Dokument fehlt`: Rechnungsdatum oder Rechnungsnummer vorhanden, aber keine Rechnungsdatei
 - `Abgerechnet`: Rechnungsdatum, Rechnungsnummer und Rechnungsdatei vorhanden
 
@@ -119,9 +119,9 @@ Ausgabenreport:
 - Zuordnungssumme muss dem Bruttobetrag entsprechen
 
 Einnahmenreport:
-- berücksichtigt nur aktive Verkäufe mit `invoice_date`
+- berücksichtigt aktive Verkäufe unabhängig vom Rechnungsstatus
 - mindestens eine Position ist erforderlich
-- Aggregation läuft nach `invoice_date`
+- Aggregation läuft nach `sale_date`
 - die Auswertung ist bewusst unabhängig vom Dokumentstatus
 - Drilldown erfolgt über Projekte
 - Positionen ohne Projekt laufen in den Bucket `Ohne Projekt`

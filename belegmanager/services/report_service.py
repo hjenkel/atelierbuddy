@@ -112,7 +112,7 @@ class ReportService:
         ]
 
     def build_income_summary(self, date_from: date | None, date_to: date | None) -> IncomeReportTotals:
-        orders = self._invoiced_orders(date_from=date_from, date_to=date_to)
+        orders = self._income_orders(date_from=date_from, date_to=date_to)
         totals_by_project_cents: dict[tuple[int, str], int] = defaultdict(int)
         overall_total_cents = 0
 
@@ -147,7 +147,7 @@ class ReportService:
             return []
 
         rows: list[IncomeOrderRow] = []
-        for order in self._invoiced_orders(date_from=date_from, date_to=date_to):
+        for order in self._income_orders(date_from=date_from, date_to=date_to):
             project_total_cents = 0
             for item in order.items:
                 if project_id == 0:
@@ -163,7 +163,7 @@ class ReportService:
                     order_id=order.id or 0,
                     internal_number=order.internal_number,
                     contact_name=self._contact_name(order),
-                    invoice_date=order.invoice_date,
+                    invoice_date=order.sale_date,
                     total_cents=project_total_cents,
                 )
             )
@@ -193,24 +193,23 @@ class ReportService:
             stmt = stmt.where(Receipt.doc_date <= date_to)
         return stmt.subquery("valid_receipts")
 
-    def _invoiced_orders(self, date_from: date | None, date_to: date | None) -> list[Order]:
+    def _income_orders(self, date_from: date | None, date_to: date | None) -> list[Order]:
         with Session(self._engine) as session:
             stmt = (
                 select(Order)
                 .where(
                     Order.deleted_at.is_(None),
-                    Order.invoice_date.is_not(None),
                 )
                 .options(
                     selectinload(Order.contact),
                     selectinload(Order.items).selectinload(OrderItem.project),
                 )
-                .order_by(Order.invoice_date.desc(), Order.created_at.desc())
+                .order_by(Order.sale_date.desc(), Order.created_at.desc())
             )
             if date_from:
-                stmt = stmt.where(Order.invoice_date >= date_from)
+                stmt = stmt.where(Order.sale_date >= date_from)
             if date_to:
-                stmt = stmt.where(Order.invoice_date <= date_to)
+                stmt = stmt.where(Order.sale_date <= date_to)
             orders = list(session.exec(stmt).all())
 
         return [order for order in orders if order.items]

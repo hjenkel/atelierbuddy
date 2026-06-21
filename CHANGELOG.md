@@ -4,15 +4,18 @@ Alle wichtigen Änderungen an diesem Projekt werden in dieser Datei dokumentiert
 
 Das Format orientiert sich an Keep a Changelog, und dieses Projekt folgt Semantic Versioning (`0.y.z` vor `1.0`).
 
-## [0.4] - Noch nicht released
+## [0.4.0] - 2026-06-21
 ### Hinzugefügt
 - Eigene Rechnungsvorlagen können in den Einstellungen als HTML/CSS-Dateien plus optionale Fonts hochgeladen und installweit aktiviert werden.
 - Neue Nutzeranleitung für eigene Rechnungsvorlagen mit Platzhalterliste und Promptbeispiel ergänzt.
 
 ### Geändert
 - Automatisch erzeugte Rechnungsnummern folgen nun der Verkaufsnummer im Format `RE-<Verkaufsnummer>`, zum Beispiel `RE-2026-0001`.
+- Verkäufe können ohne Kontakt und ohne Rechnung als reguläre Einnahmen erfasst und ausgewertet werden; ein vollständiger Kontakt bleibt nur für die Rechnungserzeugung erforderlich.
+- Neue Verkaufspositionen übernehmen bei Projektauswahl den Projektnamen als Bezeichnungsvorschlag, solange die Bezeichnung noch leer ist.
+- Mobile Beleg-Importauswahl korrigiert: Auf iPhone und iPad öffnet der Upload jetzt zuverlässig die native Auswahl für Dateien, Fotos und Kamera.
 
-## [0.3.6] - Noch nicht released
+## [0.3.6] 
 ### Hinzugefügt
 - Projekte verfügen jetzt über ein eigenes Notizfeld.
 
