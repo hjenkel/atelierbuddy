@@ -1997,7 +1997,7 @@ def register_pages(services: ServiceContainer) -> None:
                                     <button id="{next_btn_id}" type="button">▶</button>
                                     <span class="bm-pdf-spacer"></span>
                                     <button id="{zoom_out_btn_id}" type="button">−</button>
-                                    <span id="{zoom_label_id}" class="bm-pdf-label">100%</span>
+                                    <span id="{zoom_label_id}" class="bm-pdf-label bm-pdf-zoom-label">100%</span>
                                     <button id="{zoom_in_btn_id}" type="button">+</button>
                                     <button id="{fit_btn_id}" type="button">Fit</button>
                                   </div>

@@ -1470,6 +1470,10 @@ def apply_theme() -> None:
             min-width: 72px;
           }
 
+          .bm-pdf-zoom-label {
+            display: none;
+          }
+
           .bm-sidebar-backdrop {
             display: block;
             position: fixed;

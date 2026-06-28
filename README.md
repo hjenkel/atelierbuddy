@@ -2,7 +2,7 @@
 
 Lokale Web-App für Belegverwaltung, Ausgangsrechnungen und betriebliche Auswertungen in kreativen Arbeitskontexten.
 
-Aktuelle Version: `0.4.0`
+Aktuelle Version: `0.4.1`
 
 ## Was ist Atelier Buddy?
 Atelier Buddy richtet sich an Künstler:innen, Bands und andere Solo- oder Kleinstteams, die Belege, Kontakte, Projekte und Verkäufe an einem Ort pflegen möchten, ohne in klassische ERP- oder Steuerkanzlei-Software zu wechseln.

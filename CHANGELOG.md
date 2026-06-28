@@ -4,6 +4,11 @@ Alle wichtigen Änderungen an diesem Projekt werden in dieser Datei dokumentiert
 
 Das Format orientiert sich an Keep a Changelog, und dieses Projekt folgt Semantic Versioning (`0.y.z` vor `1.0`).
 
+## [0.4.1] - 2026-06-28
+### Geändert
+- Mobile PDF-Vorschau in der Belegdetailansicht korrigiert: Die Zoomstufe wird auf schmalen Bildschirmen ausgeblendet, damit die Toolbar-Buttons sichtbar bleiben.
+- Versionshinweise in README und Entwicklerdokumentation auf `0.4.1` aktualisiert.
+
 ## [0.4.0] - 2026-06-21
 ### Hinzugefügt
 - Eigene Rechnungsvorlagen können in den Einstellungen als HTML/CSS-Dateien plus optionale Fonts hochgeladen und installweit aktiviert werden.
